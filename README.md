@@ -2,19 +2,43 @@
 
 A Claude Code plugin with debugging, code analysis, and developer productivity commands.
 
-## Installation
+## Install
+
+Run these commands in your terminal:
 
 ```bash
-# Add the marketplace
-/plugin marketplace add shiyas1331/devkit
-
-# Install the plugin
-/plugin install devkit@shiyas1331-devkit
+claude plugin marketplace add shiyas1331/devkit
+claude plugin install devkit@shiyas-devkit
 ```
 
-Or test locally:
+Restart your Claude Code session. The plugin is now available.
+
+### From Source (local testing)
+
+If you want to make changes and test locally:
+
 ```bash
-claude --plugin-dir /path/to/devkit
+git clone https://github.com/shiyas1331/devkit.git
+cd devkit
+claude --plugin-dir .
+```
+
+## Upgrade
+
+When a new version is released:
+
+```bash
+claude plugin marketplace update shiyas-devkit
+claude plugin update devkit@shiyas-devkit
+```
+
+Changes take effect in your next Claude Code session.
+
+## Uninstall
+
+```bash
+claude plugin uninstall devkit@shiyas-devkit
+claude plugin marketplace remove shiyas-devkit
 ```
 
 ## Commands
@@ -58,6 +82,10 @@ The plugin bundles 4 specialized agents that can be used standalone or are calle
 | `devkit:codebase-analyzer` | Trace data flow and understand how components work |
 | `devkit:codebase-pattern-finder` | Find similar implementations and extract reusable patterns |
 | `devkit:web-search-researcher` | Research library docs, known issues, and best practices |
+
+## Changelog
+
+See [CHANGELOG.md](./CHANGELOG.md) for version history.
 
 ## License
 
