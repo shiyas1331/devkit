@@ -1,9 +1,13 @@
 {
+  "name": "shiyas-devkit",
+  "owner": {
+    "name": "Mohamed Shiyas"
+  },
   "plugins": [
     {
       "name": "devkit",
       "description": "A Claude Code plugin with debugging, code analysis, and developer productivity commands.",
-      "path": "."
+      "source": "./"
     }
   ]
 }
