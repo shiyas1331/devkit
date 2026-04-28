@@ -43,6 +43,30 @@ claude plugin marketplace remove shiyas-devkit
 
 ## Commands
 
+### `/devkit:why` — Why does this code exist?
+
+Replaces the daily 5-minute `git blame` + GitHub-clicking dance with a 10-second answer. Tells you who added the code, when, in which PR, with what reasoning. Pulls blame, originating commit, PR description, linked JIRA ticket, and review-thread highlights into one grounded explanation.
+
+**Usage:**
+```
+/devkit:why packages/editors/src/api/apiClient.ts:188
+/devkit:why apiClient.ts                          # entire file's origin
+/devkit:why apiClient.ts:120-150                  # block of lines
+/devkit:why apiClient.ts:188 --depth=thorough     # full drilldown
+/devkit:why apiClient.ts:188 --json               # machine-readable output
+```
+
+**Detects special cases:**
+- Code that was added then reverted later
+- Code superseded by a follow-up PR
+- Lines moved from another file (with rename history)
+- Squash merges (uses the squash commit's message)
+- Direct pushes to main with no PR
+
+**Confidence-labels** every "why" claim: `high` (explicit in PR/ticket), `medium` (inferred from ticket + diff), `low` (commit subject only).
+
+Used internally by `/devkit:pr-review` for "why" inferences — this command is the single source of truth for git archaeology.
+
 ### `/devkit:address-pr` — Address PR review feedback efficiently
 
 Author-side companion to `/devkit:pr-review`. Reads open reviewer comments, classifies them, drafts code fixes for change-requests and replies for questions, commits in smart batches, posts replies, resolves threads, and re-requests review — **all with explicit author approval at every step**.

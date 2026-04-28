@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.3.0 (2026-04-28)
+
+### Commands
+- `/devkit:why` — Explain why a piece of code exists. Pulls git blame, the originating commit, the merging PR's description, the linked JIRA ticket, and review-thread highlights into one grounded answer. Detects special cases: reverted code, superseded PRs, line moves, renames, squash merges, direct-to-main pushes.
+
 ## v1.2.0 (2026-04-28)
 
 ### Commands
