@@ -1,6 +1,6 @@
 ---
 description: Generate a senior-architect-level review brief for a pull request — pre-answers "why" questions from git history, triages files by attention need, surfaces conventions and risks
-argument-hint: <PR url, PR number, or branch name> [--depth=quick] [--focus=<glob>] [--since=<commit>] [--post] [--no-jira]
+argument-hint: <PR url, PR number, or branch name> [--depth=quick] [--focus=<glob>] [--since=<commit>] [--save[=<path>]] [--post] [--no-jira]
 model: opus
 ---
 
@@ -20,7 +20,9 @@ Flags:
 - `--depth=quick` — TL;DR + Triage only
 - `--focus=<glob>` — narrow to matching files
 - `--since=<commit>` — re-review mode; only diff after the commit
-- `--post` — after generating, ask permission then post brief as PR comment
+- `--save` — also write brief to `specs/reviews/PR-<num>-<slug>.md` (default: terminal only)
+- `--save=<path>` — write to a specific path
+- `--post` — implies `--save`; after writing, ask permission then post brief as PR comment
 - `--no-jira` — skip JIRA lookup
 
 If `$ARGUMENTS` is empty, ask: "Which PR? Provide a URL, number, or branch name."
@@ -154,9 +156,17 @@ Output a single markdown document. **Do not improvise the format** — reviewers
 
 ## Phase 5: Output
 
-1. Write to `specs/reviews/PR-<num>-<short-title-slug>.md` (create dir if missing).
-2. Print: file path, TL;DR section verbatim, one-line next-step suggestion.
-3. If `--post`: show first 30 lines, ask `"Post as comment on PR #<num>? (y/n)"`. On `y`, run `gh pr comment <PR> --body-file <path>`. Never post without explicit confirmation.
+Default (no `--save`, no `--post`):
+- Print the full brief to the terminal. Don't write any files.
+
+If `--save` (or `--save=<path>`, or `--post` which implies `--save`):
+- Write to the given path, or `specs/reviews/PR-<num>-<short-title-slug>.md` if no path specified. Create the directory if missing.
+- Print: file path, TL;DR section verbatim, one-line next-step suggestion.
+
+If `--post`:
+- Show first 30 lines of the brief, ask: `"Post as comment on PR #<num>? (y/n)"`.
+- On `y`, run `gh pr comment <PR> --body-file <path>`.
+- Never post without explicit confirmation.
 
 ## Phase 6: Quality gates (before writing)
 
@@ -200,7 +210,7 @@ If any gate fails, fix before output.
 ## Example
 
 ```
-/devkit:pr-review https://github.com/practo/provider-app/pull/409
+/devkit:pr-review 409                # prints full brief to terminal
+/devkit:pr-review 409 --save         # also writes specs/reviews/PR-409-<slug>.md
+/devkit:pr-review 409 --post         # writes file, asks before posting as PR comment
 ```
-
-Generates `specs/reviews/PR-409-<slug>.md` and prints the TL;DR.

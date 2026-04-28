@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.3.3 (2026-04-29)
+
+### `/devkit:pr-review` — file output is now opt-in
+
+Default behavior changed: the brief is printed to the terminal only. No files are written unless explicitly asked for. Reduces friction for one-shot reviews and avoids polluting repos.
+
+- New `--save` flag — also write to `specs/reviews/PR-<num>-<slug>.md` (the previous default location).
+- New `--save=<path>` — write to a custom path.
+- `--post` now implies `--save` (a file is needed for `gh pr comment --body-file`).
+- `/devkit:address-pr` continues to read from `specs/reviews/` if a brief exists there.
+
 ## v1.3.2 (2026-04-28)
 
 ### Refactor — `/devkit:pr-review` and `/devkit:address-pr`

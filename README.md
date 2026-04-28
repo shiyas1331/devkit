@@ -143,7 +143,7 @@ Generates a calibrated review brief for a pull request. Reads the diff, mines `g
 
 **Composes with CodeRabbit** (line-level) — `/devkit:pr-review` operates at the decision level; the two are complementary.
 
-Brief is written to `specs/reviews/PR-<num>-<slug>.md` and printed.
+By default the brief is printed to the terminal only. Use `--save` to also write to `specs/reviews/PR-<num>-<slug>.md`, or `--post` to write + post as a PR comment (asks before posting).
 
 ### `/devkit:trace` — Auto-instrumented debugging
 
