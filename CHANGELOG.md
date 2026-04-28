@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.3.2 (2026-04-28)
+
+### Refactor — `/devkit:pr-review` and `/devkit:address-pr`
+
+Trimmed both command prompts ~27% with no behavior change. Removed verbose phase intros, redundant calibration reminders, and multi-paragraph philosophy explanations. Kept verbatim: output format templates, edge case tables, quality gates, agent-reference patterns — the parts that enforce consistency. Easier to maintain when adding flags or updating conventions.
+
 ## v1.3.1 (2026-04-28)
 
 ### Improvements to `/devkit:why`
