@@ -12,38 +12,19 @@ Author-side tool. Read open reviewer comments, classify each, draft the right re
 
 ## Help mode (check first, before any other work)
 
-If `$ARGUMENTS` is empty, or contains `--help`, `-h`, or `?` as a standalone token, print the help text below verbatim and exit immediately. Do NOT proceed to any other phase.
+If `$ARGUMENTS` is empty, or contains `--help`, `-h`, or `?` as a standalone token:
 
-```
-/devkit:address-pr — Walk reviewer comments and apply fixes
-
-Usage:
-  /devkit:address-pr <PR>                Walk through open reviewer comments
-  /devkit:address-pr <PR> --dry-run      Show plan only; nothing applied or posted
-
-PR identifier (any of):
-  • GitHub PR URL, PR number, or branch name
-
-Flags:
-  --dry-run            Show the plan but don't apply / commit / post.
-  --ignore-bots        Skip bot accounts (CodeRabbit, dependabot, danger, etc.).
-  --reviewer=<login>   Only address comments from this reviewer (multi-flag supported).
-  --auto-resolve       Mark threads resolved after fixes land (without asking).
-  --help, -h           Show this help.
-
-Workflow:
-  1. Fetches all open review comments
-  2. Classifies each (change-request / nit / question / suggestion / etc.)
-  3. Shows a unified plan; asks before any action
-  4. Walks each item with apply / skip / edit / push-back per fix
-  5. Commits in smart batches; posts replies in one batch
-  6. Optionally resolves threads and re-requests review
-
-Examples:
-  /devkit:address-pr 409
-  /devkit:address-pr 409 --dry-run
-  /devkit:address-pr 409 --ignore-bots --reviewer=senior-rev
-```
+1. Locate the help reference: `<plugin-root>/references/help/address-pr.md` (two directories up from this command file).
+2. Read it.
+3. Print its **"Scenario menu"** section verbatim.
+4. Ask: ``"Pick a number + the PR (e.g. `2 409`), or paste your own command. Type `?` for the full flag reference."``
+5. **Wait for the user's reply** — do NOT proceed to any other phase on this turn.
+6. Parse the reply using the **"Number → command mapping"** in the help file:
+   - `<N> <PR-id>` (or `<N> <PR> <login>` for option 4) — re-run as the mapped command.
+   - `<N>` alone — ask for the missing inputs.
+   - `?` / `flags` / `full` — print the **"Verbose flag reference"** section and re-prompt.
+   - Raw `/devkit:address-pr <PR> ...` command — run as-is.
+   - Anything else — re-prompt.
 
 ## Input
 

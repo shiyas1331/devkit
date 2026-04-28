@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.3.7 (2026-04-29)
+
+### Help becomes an interactive scenario picker, externalized to `references/help/`
+
+Static `--help` text dumps replaced with a numbered scenario menu where users pick a mode by number. Help content extracted to `references/help/<command>.md` so command files stay focused on orchestration.
+
+- New: `references/help/pr-review.md`, `address-pr.md`, `why.md`, `trace.md` — each contains a scenario menu, number→command mapping, and a verbose flag reference.
+- Each command's help-mode block now does ~10 lines: read the help file, print the menu, parse the user's numbered reply.
+- `?` (or `flags`, `full`) reveals the verbose flag reference for power users.
+- Bare invocation prints the menu instead of asking "which PR?" — discovery without docs.
+
+User experience: `/devkit:pr-review --help` now shows numbered options like "5. Post a full review with inline comments [recommended for real reviews]" — reply with `5 409` to run.
+
 ## v1.3.6 (2026-04-29)
 
 ### `--help` / `-h` support across all commands

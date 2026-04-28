@@ -19,38 +19,19 @@ Never explain the debugging process. Never narrate your reasoning. Just direct t
 
 ## Help mode (check first, before any other work)
 
-If `$ARGUMENTS` contains `--help`, `-h`, or `?` as a standalone token, print the help text below verbatim and exit immediately. Do NOT proceed to any other phase.
+If `$ARGUMENTS` contains `--help`, `-h`, or `?` as a standalone token:
 
-```
-/devkit:trace — Auto-instrumented debugging
-
-Usage:
-  /devkit:trace <description of bug>           Trace and fix a bug from a description
-  /devkit:trace screenshot:<path> <description>  Add a screenshot as evidence
-  /devkit:trace logs:<path> <description>      Provide a log file as evidence
-
-Multiple screenshots and log files can be combined with text in any order.
-
-How it works:
-  1. Analyzes the codebase to map files related to the bug
-  2. Detects platform (Android / iOS / RN / React / Java / Python) and connected devices
-  3. Adds TRACE_* logs at strategic layers (NET / STATE / VM / LC / NAV / UI / DATA)
-  4. You reproduce the bug; the command captures and analyzes logs
-  5. Narrows to a suspect layer with deeper traces if needed
-  6. Presents root cause and proposed fix for your approval
-  7. Applies the fix, removes all trace logs
-
-Supported platforms: Android (Kotlin/Java), iOS (Swift), React Native, React (web),
-Java (Spring), Python (Django/Flask).
-
-Flags:
-  --help, -h    Show this help.
-
-Examples:
-  /devkit:trace login screen blank after submit
-  /devkit:trace screenshot:/tmp/broken.png the layout is wrong
-  /devkit:trace logs:/tmp/logcat.txt app crashes on startup
-```
+1. Locate the help reference: `<plugin-root>/references/help/trace.md` (two directories up from this command file).
+2. Read it.
+3. Print its **"Scenario menu"** section verbatim.
+4. Ask: ``"Pick a number + your inputs (e.g. `1 login button does nothing`), or paste your own command. Type `?` for full reference."``
+5. **Wait for the user's reply** — do NOT proceed to any other phase on this turn.
+6. Parse the reply using the **"Number → command mapping"** in the help file:
+   - `<N> <inputs>` — re-run as the mapped command.
+   - `<N>` alone — ask for the missing inputs.
+   - `?` / `flags` / `full` — print the **"Verbose flag reference"** section and re-prompt.
+   - Raw `/devkit:trace ...` command — run as-is.
+   - Anything else — re-prompt.
 
 ## Input
 

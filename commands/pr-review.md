@@ -12,41 +12,19 @@ Reviewer-side tool. Author does nothing. Mine git history + codebase patterns + 
 
 ## Help mode (check first, before any other work)
 
-If `$ARGUMENTS` is empty, or contains `--help`, `-h`, or `?` as a standalone token, print the help text below verbatim and exit immediately. Do NOT proceed to any other phase.
+If `$ARGUMENTS` is empty, or contains `--help`, `-h`, or `?` as a standalone token:
 
-```
-/devkit:pr-review — PR review brief generator
-
-Usage:
-  /devkit:pr-review <PR>                  Print full brief to terminal (default)
-  /devkit:pr-review <PR> --save           Also save to specs/reviews/
-  /devkit:pr-review <PR> --post           Post single summary comment (asks first)
-  /devkit:pr-review <PR> --post-review    Post a GitHub review with inline comments
-
-PR identifier (any of):
-  • GitHub PR URL, e.g. https://github.com/org/repo/pull/123
-  • PR number, e.g. 123 (resolves against current repo's origin)
-  • Branch name, e.g. feat/CAT-260-foo
-
-Flags:
-  --depth=quick       TL;DR + Triage only (faster); default is full brief.
-  --focus=<glob>      Narrow analysis to files matching the glob.
-  --since=<commit>    Re-review mode — only diff after the given commit.
-  --save              Also write to specs/reviews/PR-<num>-<slug>.md.
-  --save=<path>       Write to a specific path.
-  --post              Post as a single summary PR comment (asks first). Implies --save.
-  --post-review       Post a full GitHub review with inline comments at relevant file:lines.
-                      Confirms each comment individually by default.
-  --bulk-confirm      With --post-review: one y/n for the whole batch instead of per-comment.
-  --no-jira           Skip JIRA ticket lookup even if a ticket ID is detected.
-  --help, -h          Show this help.
-
-Examples:
-  /devkit:pr-review 409
-  /devkit:pr-review 409 --depth=quick
-  /devkit:pr-review 409 --post-review
-  /devkit:pr-review 409 --save --no-jira
-```
+1. Locate the help reference: it's at `<plugin-root>/references/help/pr-review.md`. The plugin root is two directories up from this command file.
+2. Read that file with the Read tool.
+3. Print its **"Scenario menu"** section verbatim.
+4. Ask: ``"Pick a number + the PR (e.g. `5 409`), or paste your own command. Type `?` for the full flag reference."``
+5. **Wait for the user's reply** — do NOT proceed to any other phase on this turn.
+6. On the user's next message, parse the reply using the **"Number → command mapping"** in that help file:
+   - `<N> <PR-id>` — re-run as the mapped command.
+   - `<N>` alone — ask `"Which PR?"`, then proceed once given.
+   - `?` / `flags` / `full` — print the **"Verbose flag reference"** section, then re-prompt.
+   - Raw `/devkit:pr-review <PR> ...` command — run as-is.
+   - Anything else — re-prompt with the menu.
 
 ## Input
 

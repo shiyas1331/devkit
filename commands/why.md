@@ -16,34 +16,19 @@ You explain the **thought process** behind a piece of code. The most recent comm
 
 ## Help mode (check first, before any other work)
 
-If `$ARGUMENTS` is empty, or contains `--help`, `-h`, or `?` as a standalone token, print the help text below verbatim and exit immediately. Do NOT proceed to any other phase.
+If `$ARGUMENTS` is empty, or contains `--help`, `-h`, or `?` as a standalone token:
 
-```
-/devkit:why — Explain why a piece of code exists
-
-Usage:
-  /devkit:why <file:line>            Explain that line's history
-  /devkit:why <file>                 Explain the file's first substantive commit
-  /devkit:why <file:start-end>       Explain a range of lines
-
-How it works:
-  Walks back through line history (skipping typo / format / lint / rename / bot
-  commits) to find the substantive originator. Pulls in the merging PR, linked
-  JIRA ticket, and review-thread debate. Confidence-labels every claim.
-
-Flags:
-  --depth=quick        One paragraph + sources + walk summary (default).
-  --depth=thorough     Adds PR description excerpt, key review-thread points,
-                       secondary edits since the originator.
-  --max-walk=<N>       Cap on how far back to walk (default 5).
-  --json               Machine-readable output.
-  --help, -h           Show this help.
-
-Examples:
-  /devkit:why apiClient.ts:188
-  /devkit:why apiClient.ts:120-150 --depth=thorough
-  /devkit:why apiClient.ts --json
-```
+1. Locate the help reference: `<plugin-root>/references/help/why.md` (two directories up from this command file).
+2. Read it.
+3. Print its **"Scenario menu"** section verbatim.
+4. Ask: ``"Pick a number + the target (e.g. `1 apiClient.ts:188`), or paste your own command. Type `?` for the full flag reference."``
+5. **Wait for the user's reply** — do NOT proceed to any other phase on this turn.
+6. Parse the reply using the **"Number → command mapping"** in the help file:
+   - `<N> <target>` — re-run as the mapped command.
+   - `<N>` alone — ask for the missing target.
+   - `?` / `flags` / `full` — print the **"Verbose flag reference"** section and re-prompt.
+   - Raw `/devkit:why <target> ...` command — run as-is.
+   - Anything else — re-prompt.
 
 ## Input
 
