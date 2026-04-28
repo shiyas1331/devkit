@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.2.0 (2026-04-28)
+
+### Commands
+- `/devkit:address-pr` — Author-side companion to `/devkit:pr-review`. Reads open reviewer comments, classifies them (change-request / nit / question / suggestion / praise / out-of-scope / stale / conflict), drafts code fixes and replies, commits in smart batches, posts replies, resolves threads, and re-requests review — all with author approval at every step.
+
+## v1.1.0 (2026-04-28)
+
+### Commands
+- `/devkit:pr-review` — Senior-architect-level review brief for a pull request. Pre-answers "why" questions from git history, triages files by attention need, surfaces convention violations and risks. Reads PR via `gh`, mines `git blame` / `git log` / linked JIRA tickets / similar past PRs.
+
 ## v1.0.0 (2026-04-20)
 
 Initial release.

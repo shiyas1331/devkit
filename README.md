@@ -43,6 +43,71 @@ claude plugin marketplace remove shiyas-devkit
 
 ## Commands
 
+### `/devkit:address-pr` — Address PR review feedback efficiently
+
+Author-side companion to `/devkit:pr-review`. Reads open reviewer comments, classifies them, drafts code fixes for change-requests and replies for questions, commits in smart batches, posts replies, resolves threads, and re-requests review — **all with explicit author approval at every step**.
+
+**Usage:**
+```
+/devkit:address-pr 409
+/devkit:address-pr 409 --dry-run                 # show plan only, no changes
+/devkit:address-pr 409 --ignore-bots             # skip CodeRabbit / dependabot etc.
+/devkit:address-pr 409 --reviewer=senior-rev     # only this reviewer's comments
+/devkit:address-pr 409 --auto-resolve            # mark threads resolved after fixes land
+```
+
+**Comment classification:**
+
+| Type | Action |
+|---|---|
+| change-request | Draft code fix; ask before applying |
+| nit | Batch with other nits in the same file → one commit |
+| question | Draft reply; queue for batch posting |
+| suggestion | Draft both a fix proposal and a discussion reply |
+| praise | Acknowledge in summary, no action |
+| out-of-scope | Reply acknowledging deferral; do not auto-resolve |
+| stale | Detect line already changed; suggest resolving without code change |
+| conflict | Surface to author when two reviewers ask for opposing changes — never silently picks one |
+
+**Smart features:**
+- Plan before action — full preview, then per-item confirmation
+- Push-back drafting — when the author disagrees, helps draft a respectful counter-argument
+- Smart commit grouping — nits in same file batched, substantive changes individual
+- Stale-comment detection — won't waste time on already-fixed concerns
+- Resume from interruption — never starts from scratch on re-run
+
+The author stays in control. Nothing is committed or posted without explicit confirmation.
+
+### `/devkit:pr-review` — Senior-architect-level PR review brief
+
+Generates a calibrated review brief for a pull request. Reads the diff, mines `git blame` / `git log` / linked JIRA tickets / similar past PRs to **pre-answer "why" questions before the reviewer asks them**. Triages files by attention need so the reviewer focuses where it matters.
+
+**Usage:**
+```
+/devkit:pr-review https://github.com/org/repo/pull/123
+/devkit:pr-review 123 --depth=quick
+/devkit:pr-review feat/CAT-260-foo --post
+/devkit:pr-review 123 --since=abc1234     # re-review mode, only new commits
+```
+
+**Flags:**
+- `--depth=quick` — TL;DR + Triage only (faster); default is full brief
+- `--focus=<glob>` — narrow analysis to matching files
+- `--since=<commit>` — only consider diff after the given commit (re-review mode)
+- `--post` — after generating, ask permission then post brief as a PR comment
+- `--no-jira` — skip JIRA lookup even if a ticket ID is detected
+
+**What the brief contains:**
+- TL;DR (60-second read), behavior change in plain English, file triage (🔴 read carefully / 🟡 skim / 🟢 skip)
+- Decisions inferred from history with confidence + source attribution
+- Open questions for the author (only the unanswerable-from-history ones)
+- Convention check, risk highlights, suggested verification steps
+- Similar past PRs with outcomes
+
+**Composes with CodeRabbit** (line-level) — `/devkit:pr-review` operates at the decision level; the two are complementary.
+
+Brief is written to `specs/reviews/PR-<num>-<slug>.md` and printed.
+
 ### `/devkit:trace` — Auto-instrumented debugging
 
 Automatically instruments your code with trace logs, captures output from connected devices, analyzes results to find the root cause, and cleans up after fixing.
