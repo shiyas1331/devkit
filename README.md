@@ -47,23 +47,36 @@ claude plugin marketplace remove shiyas-devkit
 
 Replaces the daily 5-minute `git blame` + GitHub-clicking dance with a 10-second answer. Tells you who added the code, when, in which PR, with what reasoning. Pulls blame, originating commit, PR description, linked JIRA ticket, and review-thread highlights into one grounded explanation.
 
+**Walks line history.** The most recent commit on a line is often a typo fix or formatter run — not the answer to "why." This command walks back through history (skipping trivial commits like typo/format/lint/rename/bot edits) to find the substantive originator. The walk count is shown so you know how far it traced.
+
 **Usage:**
 ```
 /devkit:why packages/editors/src/api/apiClient.ts:188
 /devkit:why apiClient.ts                          # entire file's origin
 /devkit:why apiClient.ts:120-150                  # block of lines
 /devkit:why apiClient.ts:188 --depth=thorough     # full drilldown
+/devkit:why apiClient.ts:188 --max-walk=10        # walk further back
 /devkit:why apiClient.ts:188 --json               # machine-readable output
 ```
 
 **Detects special cases:**
+- Trivial commits (typo, format, lint, rename) — skipped during the walk
 - Code that was added then reverted later
 - Code superseded by a follow-up PR
-- Lines moved from another file (with rename history)
-- Squash merges (uses the squash commit's message)
+- Lines moved from another file (with rename history via `git log --follow`)
+- Squash merges (authoritative detection via PR `merge_method`)
 - Direct pushes to main with no PR
+- Generated/vendored files (path + content sniffing)
+- Working-tree drift (target line has unstaged changes)
+- Submodule paths (auto-descends)
 
-**Confidence-labels** every "why" claim: `high` (explicit in PR/ticket), `medium` (inferred from ticket + diff), `low` (commit subject only).
+**Mechanical confidence labels** (no judgment-call variance):
+- `high` — PR body or commit message explicitly explains the why (`because`, `to fix`, `to address`, etc.). OR ticket description >100 chars.
+- `medium` — Linked ticket has meaningful title. OR review thread has ≥2 rationale comments. OR commit body >100 chars.
+- `low` — Only commit subject available, or `--max-walk` cap was hit.
+- `none` — Direct push, one-line subject, no recoverable why.
+
+**Configurable ticket prefixes** via `TICKET_PREFIXES` env var (e.g., `TICKET_PREFIXES=CAT,COVEX`) to prevent ghost tickets from over-permissive regex.
 
 Used internally by `/devkit:pr-review` for "why" inferences — this command is the single source of truth for git archaeology.
 
