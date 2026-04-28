@@ -17,6 +17,41 @@ Never explain the debugging process. Never narrate your reasoning. Just direct t
 
 > **STOP marker:** Wherever you see STOP — send your response and wait for developer input before continuing.
 
+## Help mode (check first, before any other work)
+
+If `$ARGUMENTS` contains `--help`, `-h`, or `?` as a standalone token, print the help text below verbatim and exit immediately. Do NOT proceed to any other phase.
+
+```
+/devkit:trace — Auto-instrumented debugging
+
+Usage:
+  /devkit:trace <description of bug>           Trace and fix a bug from a description
+  /devkit:trace screenshot:<path> <description>  Add a screenshot as evidence
+  /devkit:trace logs:<path> <description>      Provide a log file as evidence
+
+Multiple screenshots and log files can be combined with text in any order.
+
+How it works:
+  1. Analyzes the codebase to map files related to the bug
+  2. Detects platform (Android / iOS / RN / React / Java / Python) and connected devices
+  3. Adds TRACE_* logs at strategic layers (NET / STATE / VM / LC / NAV / UI / DATA)
+  4. You reproduce the bug; the command captures and analyzes logs
+  5. Narrows to a suspect layer with deeper traces if needed
+  6. Presents root cause and proposed fix for your approval
+  7. Applies the fix, removes all trace logs
+
+Supported platforms: Android (Kotlin/Java), iOS (Swift), React Native, React (web),
+Java (Spring), Python (Django/Flask).
+
+Flags:
+  --help, -h    Show this help.
+
+Examples:
+  /devkit:trace login screen blank after submit
+  /devkit:trace screenshot:/tmp/broken.png the layout is wrong
+  /devkit:trace logs:/tmp/logcat.txt app crashes on startup
+```
+
 ## Input
 
 Bug context: $ARGUMENTS
@@ -28,7 +63,7 @@ Parse the input for any combination of:
 
 Multiple screenshots and log files are supported. All inputs are combined as evidence.
 
-If no arguments provided, ask: "Describe the issue you're seeing — what's the expected vs actual behavior? You can also attach `screenshot:/path` or `logs:/path`."
+If no arguments provided, ask: "Describe the issue you're seeing — what's the expected vs actual behavior? You can also attach `screenshot:/path` or `logs:/path`. Run `/devkit:trace --help` for a quick overview."
 
 ## Context Loading
 

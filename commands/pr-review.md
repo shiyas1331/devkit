@@ -10,6 +10,44 @@ Reviewer-side tool. Author does nothing. Mine git history + codebase patterns + 
 
 **Response format:** one short sentence on what was done, the next concrete action, terse.
 
+## Help mode (check first, before any other work)
+
+If `$ARGUMENTS` is empty, or contains `--help`, `-h`, or `?` as a standalone token, print the help text below verbatim and exit immediately. Do NOT proceed to any other phase.
+
+```
+/devkit:pr-review — PR review brief generator
+
+Usage:
+  /devkit:pr-review <PR>                  Print full brief to terminal (default)
+  /devkit:pr-review <PR> --save           Also save to specs/reviews/
+  /devkit:pr-review <PR> --post           Post single summary comment (asks first)
+  /devkit:pr-review <PR> --post-review    Post a GitHub review with inline comments
+
+PR identifier (any of):
+  • GitHub PR URL, e.g. https://github.com/org/repo/pull/123
+  • PR number, e.g. 123 (resolves against current repo's origin)
+  • Branch name, e.g. feat/CAT-260-foo
+
+Flags:
+  --depth=quick       TL;DR + Triage only (faster); default is full brief.
+  --focus=<glob>      Narrow analysis to files matching the glob.
+  --since=<commit>    Re-review mode — only diff after the given commit.
+  --save              Also write to specs/reviews/PR-<num>-<slug>.md.
+  --save=<path>       Write to a specific path.
+  --post              Post as a single summary PR comment (asks first). Implies --save.
+  --post-review       Post a full GitHub review with inline comments at relevant file:lines.
+                      Confirms each comment individually by default.
+  --bulk-confirm      With --post-review: one y/n for the whole batch instead of per-comment.
+  --no-jira           Skip JIRA ticket lookup even if a ticket ID is detected.
+  --help, -h          Show this help.
+
+Examples:
+  /devkit:pr-review 409
+  /devkit:pr-review 409 --depth=quick
+  /devkit:pr-review 409 --post-review
+  /devkit:pr-review 409 --save --no-jira
+```
+
 ## Input
 
 PR identifier: $ARGUMENTS
@@ -27,7 +65,7 @@ Flags:
 - `--bulk-confirm` — used with `--post-review`; ask once for the whole batch instead of per-comment
 - `--no-jira` — skip JIRA lookup
 
-If `$ARGUMENTS` is empty, ask: "Which PR? Provide a URL, number, or branch name."
+(Empty `$ARGUMENTS` is handled by the Help mode section above — prints help and exits.)
 
 ## Context Loading
 

@@ -10,6 +10,41 @@ Author-side tool. Read open reviewer comments, classify each, draft the right re
 
 **Response format:** one short sentence on what was done, the next concrete action, terse.
 
+## Help mode (check first, before any other work)
+
+If `$ARGUMENTS` is empty, or contains `--help`, `-h`, or `?` as a standalone token, print the help text below verbatim and exit immediately. Do NOT proceed to any other phase.
+
+```
+/devkit:address-pr — Walk reviewer comments and apply fixes
+
+Usage:
+  /devkit:address-pr <PR>                Walk through open reviewer comments
+  /devkit:address-pr <PR> --dry-run      Show plan only; nothing applied or posted
+
+PR identifier (any of):
+  • GitHub PR URL, PR number, or branch name
+
+Flags:
+  --dry-run            Show the plan but don't apply / commit / post.
+  --ignore-bots        Skip bot accounts (CodeRabbit, dependabot, danger, etc.).
+  --reviewer=<login>   Only address comments from this reviewer (multi-flag supported).
+  --auto-resolve       Mark threads resolved after fixes land (without asking).
+  --help, -h           Show this help.
+
+Workflow:
+  1. Fetches all open review comments
+  2. Classifies each (change-request / nit / question / suggestion / etc.)
+  3. Shows a unified plan; asks before any action
+  4. Walks each item with apply / skip / edit / push-back per fix
+  5. Commits in smart batches; posts replies in one batch
+  6. Optionally resolves threads and re-requests review
+
+Examples:
+  /devkit:address-pr 409
+  /devkit:address-pr 409 --dry-run
+  /devkit:address-pr 409 --ignore-bots --reviewer=senior-rev
+```
+
 ## Input
 
 PR identifier: $ARGUMENTS
@@ -22,7 +57,7 @@ Flags:
 - `--reviewer=<login>` — only address comments from this reviewer (multi-flag supported)
 - `--auto-resolve` — mark threads resolved after fixes land (without asking)
 
-If `$ARGUMENTS` is empty, ask: "Which PR?"
+(Empty `$ARGUMENTS` is handled by the Help mode section above — prints help and exits.)
 
 ## Context Loading
 

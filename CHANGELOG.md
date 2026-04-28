@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.3.6 (2026-04-29)
+
+### `--help` / `-h` support across all commands
+
+Every devkit command now responds to `--help`, `-h`, or `?` with a concise usage doc — no need to hunt the README. Bare invocation also prints help instead of cryptic prompts.
+
+- `/devkit:pr-review --help`
+- `/devkit:address-pr --help`
+- `/devkit:why --help`
+- `/devkit:trace --help`
+
+Each help text covers: usage examples, flag descriptions in plain English, and 2-3 example invocations. Same discoverability pattern as `gh --help`, `git --help`, etc.
+
 ## v1.3.5 (2026-04-29)
 
 ### `/devkit:pr-review` — conditional agent spawning + new convention-checker agent
