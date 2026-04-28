@@ -143,7 +143,13 @@ Generates a calibrated review brief for a pull request. Reads the diff, mines `g
 
 **Composes with CodeRabbit** (line-level) — `/devkit:pr-review` operates at the decision level; the two are complementary.
 
-By default the brief is printed to the terminal only. Use `--save` to also write to `specs/reviews/PR-<num>-<slug>.md`, or `--post` to write + post as a PR comment (asks before posting).
+**Output modes:**
+- Default: prints full brief to the terminal, no files or posts.
+- `--save` — also writes the brief to `specs/reviews/PR-<num>-<slug>.md`.
+- `--post` — single summary comment on the PR (asks before posting).
+- `--post-review` — full GitHub review with **inline comments at relevant file:lines** + summary body. Confirms each inline comment individually by default; use `--bulk-confirm` for one batch confirmation.
+
+Inline comments are tagged with `🤖 [devkit:pr-review]` so the author can distinguish tool-generated from human comments. The tool always submits as `event: COMMENT` — never blocks merge with `REQUEST_CHANGES` or auto-approves. Only findings with concrete file:line references become inline comments; the rest stay in the summary.
 
 ### `/devkit:trace` — Auto-instrumented debugging
 

@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.3.4 (2026-04-29)
+
+### `/devkit:pr-review` — `--post-review` mode (inline comments)
+
+The brief now translates findings into a real GitHub PR review: a summary body + inline comments at the relevant file:lines, posted as a single review.
+
+- New `--post-review` flag — full GitHub review with inline comments. Each comment confirmed individually before posting (default behavior; safer than bulk).
+- New `--bulk-confirm` flag — combines with `--post-review` for one y/n on the entire batch instead of per-comment.
+- Inline comments tagged with `🤖 [devkit:pr-review]` prefix so authors distinguish tool-generated from human feedback.
+- Always posts as `event: COMMENT` — never blocks merge with `REQUEST_CHANGES` or auto-approves.
+- Validates every file:line against the latest commit before posting; drops stale-line comments.
+- Caps inline comments per file at 5; excess findings move to the summary as `Additional notes on <file>`.
+- Warns before posting a review with > 20 inline comments.
+- Halts gracefully if no findings have concrete file:line references — suggests `--post` instead.
+
 ## v1.3.3 (2026-04-29)
 
 ### `/devkit:pr-review` — file output is now opt-in

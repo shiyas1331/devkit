@@ -1,6 +1,6 @@
 ---
 description: Generate a senior-architect-level review brief for a pull request — pre-answers "why" questions from git history, triages files by attention need, surfaces conventions and risks
-argument-hint: <PR url, PR number, or branch name> [--depth=quick] [--focus=<glob>] [--since=<commit>] [--save[=<path>]] [--post] [--no-jira]
+argument-hint: <PR url, PR number, or branch name> [--depth=quick] [--focus=<glob>] [--since=<commit>] [--save[=<path>]] [--post] [--post-review] [--bulk-confirm] [--no-jira]
 model: opus
 ---
 
@@ -22,7 +22,9 @@ Flags:
 - `--since=<commit>` — re-review mode; only diff after the commit
 - `--save` — also write brief to `specs/reviews/PR-<num>-<slug>.md` (default: terminal only)
 - `--save=<path>` — write to a specific path
-- `--post` — implies `--save`; after writing, ask permission then post brief as PR comment
+- `--post` — implies `--save`; after writing, ask permission then post brief as a single summary PR comment
+- `--post-review` — post a full GitHub review with **inline comments** at relevant file:lines plus a summary body. Confirms each inline comment individually by default.
+- `--bulk-confirm` — used with `--post-review`; ask once for the whole batch instead of per-comment
 - `--no-jira` — skip JIRA lookup
 
 If `$ARGUMENTS` is empty, ask: "Which PR? Provide a URL, number, or branch name."
@@ -168,6 +170,41 @@ If `--post`:
 - On `y`, run `gh pr comment <PR> --body-file <path>`.
 - Never post without explicit confirmation.
 
+If `--post-review` (full GitHub review with inline comments):
+
+1. **Build the review payload** by mapping brief sections:
+
+   | Brief section | Becomes |
+   |---|---|
+   | TL;DR + Risk + Triage + Decisions inferred + Suggested verification | Review summary `body` |
+   | Each Convention deviation with file:line | Inline comment at that file:line |
+   | Each Risk highlight with file:line | Inline comment at that file:line |
+   | Each Open question with file:line | Inline comment at that file:line |
+
+   Skip any finding without a concrete file:line — those stay in the summary only.
+
+2. **Tag every inline comment** with a visible marker so the author can distinguish tool-generated from human comments. Prefix each comment body with: `🤖 [devkit:pr-review]\n\n`
+
+3. **Validate every file:line** against the latest commit's diff before queuing. Drop comments whose line doesn't exist in the latest commit (stale lines from older commits in the PR). Note dropped count in the confirmation prompt.
+
+4. **Cap inline comments per file** at 5 by default. Excess findings on the same file go into the summary body as `**Additional notes on <file>**`.
+
+5. **Confirm before posting:**
+   - Default: per-comment. Show each inline comment as `[N/M] <file:line>: <body>` and ask `(y / n / edit / cancel-review)`. `cancel-review` aborts the whole post.
+   - With `--bulk-confirm`: show a numbered list of all inline comments + the summary body, ask one `(y / n)` for the entire review.
+
+6. **Submit as a single review** via:
+   ```
+   gh api repos/<org>/<repo>/pulls/<num>/reviews \
+       -f event=COMMENT \
+       -F body='<summary>' \
+       -F 'comments[]={"path":"<path>","line":<N>,"body":"<text>"}' \
+       -F 'comments[]={...}'
+   ```
+   Always `event: COMMENT`. Never `REQUEST_CHANGES` or `APPROVE` — let humans block or approve.
+
+7. **Print a summary** of what was posted: `Posted review with <N> inline comments + summary. <M> findings stayed in summary only (no concrete file:line). <D> dropped (stale lines).`
+
 ## Phase 6: Quality gates (before writing)
 
 1. Every "Decision inferred" has a verifiable `source`. Drop ones that don't.
@@ -193,6 +230,9 @@ If any gate fails, fix before output.
 | `gh` not authenticated | Halt: "Run `gh auth login` and retry." |
 | Empty diff | Note "PR has no diff." Skip analysis. |
 | Existing brief on re-run | Show diff between old and new. Ask whether to overwrite. With `--since`, append delta section instead. |
+| `--post-review` finds no inline-eligible items | All findings stay in summary only. Halt with: "No inline-eligible findings; use `--post` instead for a summary comment." |
+| `--post-review` would post > 20 inline comments | Warn: "This review would post <N> inline comments. Bulk-confirm? (y/n/cancel)". Never silently post a large batch. |
+| File:line in finding doesn't match latest commit | Drop the inline comment. Track dropped count for the confirmation summary. |
 
 ## Composability
 
@@ -210,7 +250,9 @@ If any gate fails, fix before output.
 ## Example
 
 ```
-/devkit:pr-review 409                # prints full brief to terminal
-/devkit:pr-review 409 --save         # also writes specs/reviews/PR-409-<slug>.md
-/devkit:pr-review 409 --post         # writes file, asks before posting as PR comment
+/devkit:pr-review 409                  # prints full brief to terminal
+/devkit:pr-review 409 --save           # also writes specs/reviews/PR-409-<slug>.md
+/devkit:pr-review 409 --post           # writes file, asks before posting single summary comment
+/devkit:pr-review 409 --post-review    # posts a full review with inline comments at file:lines (per-comment confirm)
+/devkit:pr-review 409 --post-review --bulk-confirm   # one y/n for the whole review
 ```
