@@ -43,21 +43,31 @@ Read if present: `CLAUDE.md`, `.claude/codebase/*.md`, `CONTRIBUTING.md`, `STYLE
 
 Track failures for the "Degraded context" section.
 
-## Phase 2: Analyze (parallel agents)
+## Phase 2: Initial analysis — only what's needed
 
-### A. Codebase Locator
+Spawn agents conditionally. Each one fires only when it has work to do; never spawn unnecessarily.
+
+### A. Codebase Locator (always)
+
 Use `subagent_type: "devkit:codebase-locator"` (fallback: Glob + Read). Prompt:
 > Find files related to this PR's scope: <PR title + one-line description>. Identify slices, screens, hooks, services, tests touched or adjacent. Surface cross-cutting dependencies.
 
-### B. Codebase Analyzer (run only on 🔴 files after Phase 3)
-Use `subagent_type: "devkit:codebase-analyzer"` (fallback: Grep + Read). Prompt:
-> Trace execution flow for <file>. Identify what calls into it, what it calls, what state it touches. Flag risks introduced by the diff.
+### B. Convention Checker (conditional — only if convention docs exist)
 
-### C. Git History Analyzer (inline)
-For each significant changed line range: read originating commit message, follow PR references via `gh pr view`, capture explicit "why" stated in description or review comments. Synthesize into candidate decisions, each with: decision, inferred reason, `confidence` (`high`/`medium`/`low`), `source` (commit/PR/ticket/file:line). For deeper per-line archaeology, defer to `/devkit:why <file:line>`.
+**Gate:** spawn only if any of these files exist in the repo:
+- `CLAUDE.md`
+- `.claude/codebase/*.md`
+- `CONTRIBUTING.md`
+- `STYLE.md`
 
-### D. Convention Checker
-Walk CLAUDE.md / repo rules. For each rule, check diff compliance. Examples: language mandates ("new native must be Kotlin"), banned imports ("don't add Volley"), test coverage (new function → test exists?), error/logging/naming conventions. Output `✅ matches` and `⚠️ deviations`, each with file:line.
+If none exist, **skip** this agent and note `convention check: skipped (no convention docs)` in the brief's footer.
+
+Otherwise use `subagent_type: "devkit:convention-checker"` (fallback: Read + Grep inline). Prompt:
+> Check this PR's diff against the conventions documented in <list of files found>. Output ✅ matches and ⚠️ deviations with file:line and severity (blocker / discuss / nit).
+>
+> Diff: <inline diff or file paths>
+
+A and B run in parallel (they're independent).
 
 ## Phase 3: Triage
 
@@ -75,6 +85,25 @@ Total = `criticality × 2 + risk × 2 + magnitude`.
 | < 4 | 🟢 Skip |
 
 Overall PR risk: 🔴 if any file is 🔴 with `criticality ≥ 2`; 🟡 if any file is 🟡; else 🟢.
+
+## Phase 3b: Targeted analysis — only what's actually needed
+
+Now that triage is done, spawn the agents that are gated on triage outputs. These only fire if they have specific work — no general "analyze everything" calls.
+
+### Codebase Analyzer per 🔴 file (conditional)
+
+For each file in the 🔴 bucket, spawn `subagent_type: "devkit:codebase-analyzer"` (fallback: Grep + Read). Prompt:
+> Trace execution flow for <file>. Identify what calls into it, what it calls, what state it touches. Flag risks introduced by the diff.
+
+If the 🔴 bucket is empty, skip entirely. Most PRs have 0–2 🔴 files.
+
+### Per-finding history — `/devkit:why` (conditional, capped)
+
+Identify candidate "decisions inferred" findings — places where the diff makes a non-obvious choice (e.g., adds `retry: 0`, moves dispatch from thunk to listener, picks one pattern over an existing alternative). For each such candidate, invoke `/devkit:why <file:line>` to fetch the historical context.
+
+**Cap at 7 invocations** per PR by default (configurable later). Beyond 7, fall back to inline `git log --oneline -5 -- <file>` summaries — cheaper and good enough for the marginal cases.
+
+If a finding has no `--depth=quick` history value (e.g., it's pure forward-looking risk, not a "why" question), don't invoke `/devkit:why` for it.
 
 ## Phase 4: Generate brief
 
@@ -237,9 +266,20 @@ If any gate fails, fix before output.
 ## Composability
 
 - **CodeRabbit** — defer line-level nits to it; note in "Convention check": "see CodeRabbit for line-level feedback".
-- **`/devkit:why <file:line>`** — for deep per-line archaeology when a single decision needs more digging.
+- **`/devkit:why <file:line>`** — invoked internally during Phase 3b for per-finding historical context. The reviewer can also run it standalone for ad-hoc "why does this exist?" questions.
 - **`/devkit:trace`** — suggest in "Suggested verification" if runtime behavior needs confirmation.
 - **`/devkit:address-pr`** — author runs after review feedback to apply fixes.
+
+### Agent invocation summary
+
+| Agent | When |
+|---|---|
+| `devkit:codebase-locator` | Always (Phase 2A) |
+| `devkit:convention-checker` | Phase 2B — only if CLAUDE.md / `.claude/codebase/*.md` / CONTRIBUTING.md / STYLE.md exists |
+| `devkit:codebase-analyzer` | Phase 3b — only for files in 🔴 bucket after triage |
+| `/devkit:why` (sub-command) | Phase 3b — only for findings needing historical "why", capped at 7 per PR |
+
+Small PR with no conventions → 1 agent call. Large PR with critical paths and strong conventions → 9–12 agent calls. Cost scales with PR complexity.
 
 ## Output personality
 

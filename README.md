@@ -190,6 +190,7 @@ The plugin bundles 4 specialized agents that can be used standalone or are calle
 | `devkit:codebase-analyzer` | Trace data flow and understand how components work |
 | `devkit:codebase-pattern-finder` | Find similar implementations and extract reusable patterns |
 | `devkit:web-search-researcher` | Research library docs, known issues, and best practices |
+| `devkit:convention-checker` | Check a diff against documented repo conventions (CLAUDE.md, etc.). Surfaces matches and deviations with severity. |
 
 ## Changelog
 

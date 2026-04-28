@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.3.5 (2026-04-29)
+
+### `/devkit:pr-review` — conditional agent spawning + new convention-checker agent
+
+Cleaned up Phase 2 of `pr-review` so agents only spawn when they have actual work to do. Cost now scales with PR complexity (small PR = 1 agent call; large complex PR = 9–12).
+
+- **New agent** `devkit:convention-checker` — reusable across `pr-review`, the planned `/devkit:review`, and `/devkit:address-pr`. Reads convention docs, checks diff against each rule, classifies deviations by severity (`blocker`/`discuss`/`nit`).
+- **Phase 2B gating** — Convention Checker only spawns if convention docs exist (`CLAUDE.md`, `.claude/codebase/*.md`, `CONTRIBUTING.md`, `STYLE.md`). Otherwise skipped silently.
+- **Phase 3b new** — Codebase Analyzer fires only on 🔴 files (typically 0–2 per PR). Was previously described as "after triage" but sequencing was contradictory.
+- **`/devkit:why` per-finding gating** — invoked only for findings genuinely needing historical "why" context, capped at 7 per PR. Beyond the cap, falls back to cheap inline `git log --oneline`.
+- **Removed "Git History Analyzer" framing** — it was a label, not a real agent. Replaced with explicit `/devkit:why` invocations in Phase 3b.
+
 ## v1.3.4 (2026-04-29)
 
 ### `/devkit:pr-review` — `--post-review` mode (inline comments)
