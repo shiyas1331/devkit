@@ -37,6 +37,10 @@
   7. Skip JIRA lookup
      → /devkit:pr-review <PR> --no-jira
      Use when JIRA is unreachable or the PR has no ticket.
+
+──────────────────────────────────────────────
+Combine modes with commas: `2,4 409` = quick brief + post comment.
+Some are mutually exclusive: 1↔2 (READ depth), 4↔5 (POST style).
 ```
 
 ## Number → command mapping

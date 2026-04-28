@@ -10,20 +10,28 @@ Author-side tool. Read open reviewer comments, classify each, draft the right re
 
 **Response format:** one short sentence on what was done, the next concrete action, terse.
 
-## Help mode (check first, before any other work)
+## Mode picker (front door for invocations without flags)
 
-If `$ARGUMENTS` is empty, or contains `--help`, `-h`, or `?` as a standalone token:
+**Trigger:** the picker fires when ANY of these are true:
+- `$ARGUMENTS` is empty
+- `$ARGUMENTS` contains `--help`, `-h`, or `?` as a standalone token
+- `$ARGUMENTS` contains no `--*` flag (a bare PR identifier counts as no-flags)
 
-1. Locate the help reference: `<plugin-root>/references/help/address-pr.md` (two directories up from this command file).
+**Skip the picker** when any `--*` flag is present.
+
+When triggered:
+
+1. Locate the help reference at `<plugin-root>/references/help/address-pr.md`.
 2. Read it.
-3. Print its **"Scenario menu"** section verbatim.
-4. Ask: ``"Pick a number + the PR (e.g. `2 409`), or paste your own command. Type `?` for the full flag reference."``
+3. Print the **"Scenario menu"** section verbatim.
+4. Prompt:
+   - If `$ARGUMENTS` already has a PR (no flags): `"Selected PR: <PR>. Pick a mode (e.g. `2`, or combine: `3,5`). Type `?` for full flags."`
+   - Else: `"Pick a number + the PR (e.g. `2 409`). Combine with commas (e.g. `3,5 409`). Type `?` for full flags."`
 5. **Wait for the user's reply** — do NOT proceed to any other phase on this turn.
-6. Parse the reply using the **"Number → command mapping"** in the help file:
-   - `<N> <PR-id>` (or `<N> <PR> <login>` for option 4) — re-run as the mapped command.
-   - `<N>` alone — ask for the missing inputs.
+6. Parse the reply via the **"Number → command mapping"** in the help file:
+   - `<N>` or `<N>,<M>,...` followed by args — resolve numbers to flags, combine, append args, re-invoke.
    - `?` / `flags` / `full` — print the **"Verbose flag reference"** section and re-prompt.
-   - Raw `/devkit:address-pr <PR> ...` command — run as-is.
+   - Raw `/devkit:address-pr ...` command — run as-is.
    - Anything else — re-prompt.
 
 ## Input

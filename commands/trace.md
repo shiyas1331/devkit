@@ -17,18 +17,23 @@ Never explain the debugging process. Never narrate your reasoning. Just direct t
 
 > **STOP marker:** Wherever you see STOP — send your response and wait for developer input before continuing.
 
-## Help mode (check first, before any other work)
+## Mode picker (front door for empty / help-token invocations)
 
-If `$ARGUMENTS` contains `--help`, `-h`, or `?` as a standalone token:
+**Trigger:** the picker fires when:
+- `$ARGUMENTS` is empty, OR
+- `$ARGUMENTS` contains `--help`, `-h`, or `?` as a standalone token
 
-1. Locate the help reference: `<plugin-root>/references/help/trace.md` (two directories up from this command file).
+**Skip the picker** when any text description, `screenshot:<path>`, or `logs:<path>` is provided — those are the actual inputs and the command should proceed directly. (Unlike pr-review/why/address-pr, trace has no flags besides --help, so any non-help input means "go.")
+
+When triggered:
+
+1. Locate the help reference at `<plugin-root>/references/help/trace.md`.
 2. Read it.
-3. Print its **"Scenario menu"** section verbatim.
-4. Ask: ``"Pick a number + your inputs (e.g. `1 login button does nothing`), or paste your own command. Type `?` for full reference."``
+3. Print the **"Scenario menu"** section verbatim.
+4. Prompt: `"Pick a number + your inputs (e.g. `1 login button does nothing`). Type `?` for full reference."`
 5. **Wait for the user's reply** — do NOT proceed to any other phase on this turn.
-6. Parse the reply using the **"Number → command mapping"** in the help file:
-   - `<N> <inputs>` — re-run as the mapped command.
-   - `<N>` alone — ask for the missing inputs.
+6. Parse the reply via the **"Number → command mapping"** in the help file:
+   - `<N> <inputs>` — re-invoke as the mapped command.
    - `?` / `flags` / `full` — print the **"Verbose flag reference"** section and re-prompt.
    - Raw `/devkit:trace ...` command — run as-is.
    - Anything else — re-prompt.

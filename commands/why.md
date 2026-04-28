@@ -14,20 +14,28 @@ You explain the **thought process** behind a piece of code. The most recent comm
 - Drilldown sections only if `--depth=thorough` was passed.
 - Be direct. No marketing language.
 
-## Help mode (check first, before any other work)
+## Mode picker (front door for invocations without flags)
 
-If `$ARGUMENTS` is empty, or contains `--help`, `-h`, or `?` as a standalone token:
+**Trigger:** the picker fires when ANY of these are true:
+- `$ARGUMENTS` is empty
+- `$ARGUMENTS` contains `--help`, `-h`, or `?` as a standalone token
+- `$ARGUMENTS` contains no `--*` flag (a bare target like `file:line` counts as no-flags)
 
-1. Locate the help reference: `<plugin-root>/references/help/why.md` (two directories up from this command file).
+**Skip the picker** when any `--*` flag is present.
+
+When triggered:
+
+1. Locate the help reference at `<plugin-root>/references/help/why.md`.
 2. Read it.
-3. Print its **"Scenario menu"** section verbatim.
-4. Ask: ``"Pick a number + the target (e.g. `1 apiClient.ts:188`), or paste your own command. Type `?` for the full flag reference."``
+3. Print the **"Scenario menu"** section verbatim.
+4. Prompt:
+   - If `$ARGUMENTS` already has a target (no flags): `"Selected: <target>. Pick a mode (e.g. `1`, or combine: `2,5`). Type `?` for full flags."`
+   - Else: `"Pick a number + the target (e.g. `1 apiClient.ts:188`). Combine with commas (e.g. `2,5 apiClient.ts:188`). Type `?` for full flags."`
 5. **Wait for the user's reply** — do NOT proceed to any other phase on this turn.
-6. Parse the reply using the **"Number → command mapping"** in the help file:
-   - `<N> <target>` — re-run as the mapped command.
-   - `<N>` alone — ask for the missing target.
+6. Parse the reply via the **"Number → command mapping"** in the help file:
+   - `<N>` or `<N>,<M>,...` followed by args — resolve numbers to flags, combine, append args, re-invoke.
    - `?` / `flags` / `full` — print the **"Verbose flag reference"** section and re-prompt.
-   - Raw `/devkit:why <target> ...` command — run as-is.
+   - Raw `/devkit:why ...` command — run as-is.
    - Anything else — re-prompt.
 
 ## Input

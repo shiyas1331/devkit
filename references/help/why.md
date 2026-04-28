@@ -31,6 +31,10 @@
   6. JSON output (for tooling)
      → /devkit:why <file:line> --json
      Machine-readable output.
+
+──────────────────────────────────────────────
+Combine modes with commas: `2,5 apiClient.ts:188 10` = thorough + walk 10.
+Mutually exclusive: 1↔2 (depth).
 ```
 
 ## Number → command mapping

@@ -27,6 +27,10 @@
   5. Auto-resolve threads after fixes land
      → /devkit:address-pr <PR> --auto-resolve
      Skips per-thread "mark resolved? (y/n)" — useful for clean batches.
+
+──────────────────────────────────────────────
+Combine modes with commas: `3,5 409` = ignore bots + auto-resolve threads.
+Option 4 needs a login: `4 409 senior-rev`.
 ```
 
 ## Number → command mapping

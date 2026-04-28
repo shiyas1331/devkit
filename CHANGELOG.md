@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.3.8 (2026-04-29)
+
+### Mode picker is now the front door (no `--help` needed)
+
+Renamed "help mode" to "mode picker" because that's what it actually is. The picker now triggers whenever no flag is passed — even if a PR/target is provided. So `/devkit:pr-review 409` shows the menu with PR pre-selected; the user just types a number.
+
+Power users who want a specific invocation pass any `--*` flag and bypass the picker entirely (e.g. `/devkit:pr-review 409 --post-review` runs directly).
+
+New: **mode combinations** via comma syntax. `2,4 409` runs option 2 + option 4. Mutually-exclusive picks (e.g. READ category 1↔2, POST category 4↔5) are surfaced and resolved.
+
+Help reference files now include a combination hint at the bottom of each scenario menu so users discover the syntax.
+
+### Trace exception
+`/devkit:trace` only triggers the picker on empty input or `--help`. Any text/screenshot/log input is the actual command (no flags to combine).
+
 ## v1.3.7 (2026-04-29)
 
 ### Help becomes an interactive scenario picker, externalized to `references/help/`

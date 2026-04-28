@@ -10,21 +10,30 @@ Reviewer-side tool. Author does nothing. Mine git history + codebase patterns + 
 
 **Response format:** one short sentence on what was done, the next concrete action, terse.
 
-## Help mode (check first, before any other work)
+## Mode picker (front door for invocations without flags)
 
-If `$ARGUMENTS` is empty, or contains `--help`, `-h`, or `?` as a standalone token:
+**Trigger:** the picker fires when ANY of these are true:
+- `$ARGUMENTS` is empty
+- `$ARGUMENTS` contains `--help`, `-h`, or `?` as a standalone token
+- `$ARGUMENTS` contains no `--*` flag at all (a bare PR identifier counts as no-flags)
 
-1. Locate the help reference: it's at `<plugin-root>/references/help/pr-review.md`. The plugin root is two directories up from this command file.
-2. Read that file with the Read tool.
-3. Print its **"Scenario menu"** section verbatim.
-4. Ask: ``"Pick a number + the PR (e.g. `5 409`), or paste your own command. Type `?` for the full flag reference."``
+**Skip the picker** when any `--*` flag is present — power users with a known invocation bypass the menu and run directly.
+
+When triggered:
+
+1. Locate the help reference at `<plugin-root>/references/help/pr-review.md` (two directories up from this command file).
+2. Read it.
+3. Print the **"Scenario menu"** section verbatim.
+4. Prompt:
+   - If `$ARGUMENTS` already has a PR (no flags): `"Selected PR: <PR>. Pick a mode (e.g. `5`, or combine: `2,4`). Type `?` for full flags."`
+   - Else: `"Pick a number + the PR (e.g. `5 409`). Combine modes with commas (e.g. `2,4 409`). Type `?` for full flags."`
 5. **Wait for the user's reply** — do NOT proceed to any other phase on this turn.
-6. On the user's next message, parse the reply using the **"Number → command mapping"** in that help file:
-   - `<N> <PR-id>` — re-run as the mapped command.
-   - `<N>` alone — ask `"Which PR?"`, then proceed once given.
-   - `?` / `flags` / `full` — print the **"Verbose flag reference"** section, then re-prompt.
-   - Raw `/devkit:pr-review <PR> ...` command — run as-is.
-   - Anything else — re-prompt with the menu.
+6. Parse the reply using the **"Number → command mapping"** in the help file:
+   - **`<N>` or `<N>,<M>,...`** followed by args — resolve each number to its flag(s), combine them, append the args, then re-invoke `/devkit:pr-review` with that final command.
+     - If picks conflict in a mutually-exclusive category (READ: 1↔2, POST: 4↔5), use the more specific pick or prompt the user to choose.
+   - **`?` / `flags` / `full`** — print the **"Verbose flag reference"** section, then re-prompt.
+   - **Raw `/devkit:pr-review <PR> ...` command** — run as-is.
+   - **Anything else** — re-prompt with the menu.
 
 ## Input
 
