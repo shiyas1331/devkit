@@ -1,5 +1,30 @@
 # Changelog
 
+## v1.4.0 (2026-04-29)
+
+### New command: `/devkit:locator-add`
+
+Auto-instruments React Native library components with `testID` and `accessibilityLabel` props plus default derivation from semantic props (`text` / `label` / `placeholder`). After running on a library like `@practo/self-serve`, every consumer call site automatically gets a sensible testID — no per-call-site work in app code.
+
+- jscodeshift-based codemod over `.tsx`/`.jsx`/`.ts`/`.js` files
+- Library mode only (v1) — app/consumer code is not touched
+- Detects native-primitive JSX roots (`TouchableOpacity`, `Pressable`, `TextInput`, `Switch`, etc.) and instruments them
+- List-row pattern: components named `*Item`/`*Row`/`*Card` get a hardcoded role testID (e.g. `establishment-row`) plus accessibilityLabel forwarded from a name prop
+- Idempotent: safe to re-run; instrumented files are skipped on subsequent runs
+- Cross-file safety: when a component's props type lives in another file, the tool warns and skips rather than producing TS errors
+- Generates a `<library>/src/utils/locator.ts` helper if missing
+- Flags: `--dry-run`, `--naming role|screen|full` (only `role` does anything in v1)
+- Tested with 8 fixture-based snapshot tests (Jest)
+
+Files:
+- `commands/locator-add.md`
+- `references/help/locator-add.md`
+- `scripts/locator-add.js` (the actual jscodeshift transform)
+- `scripts/__tests__/locator-add.test.js`
+- `package.json`, `babel.config.js` (devkit now has Node deps)
+
+Future phases (deferred): app-mode collision detection, Android Compose, iOS SwiftUI, React web, page-object generation.
+
 ## v1.3.8 (2026-04-29)
 
 ### Mode picker is now the front door (no `--help` needed)

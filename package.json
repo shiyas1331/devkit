@@ -1,0 +1,22 @@
+{
+  "name": "devkit",
+  "version": "1.1.0",
+  "description": "Claude Code plugin with productivity commands and codemods for Practo engineering",
+  "private": true,
+  "scripts": {
+    "test": "jest",
+    "locator-add": "jscodeshift -t scripts/locator-add.js --parser=tsx --extensions=tsx,jsx,ts,js"
+  },
+  "devDependencies": {
+    "jscodeshift": "^17.1.1",
+    "jest": "^29.7.0",
+    "@babel/preset-env": "^7.25.4",
+    "@babel/preset-typescript": "^7.25.4",
+    "@babel/preset-react": "^7.24.7"
+  },
+  "jest": {
+    "testMatch": [
+      "<rootDir>/scripts/**/__tests__/**/*.test.js"
+    ]
+  }
+}

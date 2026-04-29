@@ -174,6 +174,30 @@ Automatically instruments your code with trace logs, captures output from connec
 7. **Cleanup** — Removes all trace logs, keeps only the fix
 8. **Document** — Records the pattern for future reference
 
+### `/devkit:locator-add` — Auto-instrument library components with QA locators
+
+Adds `testID` and `accessibilityLabel` props to React Native library components (e.g. `@practo/self-serve`) with default derivation from semantic props (`text`/`label`/`placeholder`). Once a library is instrumented, every consumer call site automatically gets a sensible testID — no per-call-site work needed in app code.
+
+**Usage:**
+```
+/devkit:locator-add omega/self-serve/src/components/atoms
+/devkit:locator-add path/to/library --dry-run
+/devkit:locator-add path/to/library --naming role
+```
+
+**Scope:** React Native library components (v1). App/consumer code is not touched.
+
+**How it works:**
+1. **Detect** — finds component definitions whose JSX root is a native primitive
+2. **Type** — adds `testID?: string` and `accessibilityLabel?: string` to the props interface
+3. **Forward** — wires the props through the destructure to the JSX root
+4. **Derive** — inserts `testID ?? deriveTestId(text/label/placeholder, '<suffix>')` so consumers get free testIDs
+5. **List rows** — components named `*Item`/`*Row`/`*Card` get a hardcoded role testID + accessibilityLabel from a name prop
+6. **Skip safely** — when the props type lives in a different file, warns and skips rather than producing TS errors
+7. **Idempotent** — re-running on instrumented files makes no changes
+
+**Setup:** First run installs Node deps (`jscodeshift`, `jest`) inside the plugin directory. Subsequent runs are fast.
+
 ## Skills
 
 ### `trace-nudge` (auto-triggered)
