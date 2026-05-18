@@ -311,20 +311,27 @@ Goal: cover one file.
 
 1. Detect platform from the file's containing package.
 2. Determine `CLASSIFICATION` from file contents (re-use the inventory rules above).
-3. Resolve `TEMPLATE_PATH` from `<plugin-root>/platforms/<PLATFORM>/templates/<classification>.template.md`.
-4. Spawn one **`test-engineer`** agent with these inputs in its prompt:
+3. Read the template ONCE from `<plugin-root>/platforms/<PLATFORM>/templates/<classification>.template.md` → store as `TEMPLATE_CONTENT`.
+4. Read the conventions ONCE from `<plugin-root>/platforms/<PLATFORM>/conventions.md` → store as `CONVENTIONS_CONTENT`.
+5. Spawn one **`test-engineer`** agent — INLINE the content directly into the prompt:
 
 ```
 PLATFORM=<PLATFORM>
 SOURCE_FILE=<absolute path>
 CLASSIFICATION=<classification>
-TEMPLATE_PATH=<absolute path>
-CONVENTIONS_PATH=<plugin-root>/platforms/<PLATFORM>/conventions.md
 PACKAGE_ROOT=<PLATFORM_ROOT>
 EXISTING_FIXTURES=<comma-separated list of make*.ts files in fixtures/>
+
+TEMPLATE:
+<paste TEMPLATE_CONTENT verbatim here>
+
+CONVENTIONS:
+<paste CONVENTIONS_CONTENT verbatim here>
 ```
 
-5. Wait for its JSON output. Read it.
+The agent does NOT read these files itself — they're already in its prompt. This makes the agent fully self-contained (works regardless of where devkit is installed) and avoids redundant file reads when batching.
+
+6. Wait for its JSON output. Read it.
 
 6. Report:
 
@@ -347,12 +354,14 @@ If status is `needs-human` or `skipped`, surface the reason prominently.
 Goal: cover all files in a named batch (e.g. all slices).
 
 1. Run discover (mode B) silently. Filter inventory to the named batch.
-2. For each file in the batch:
-   - Determine classification (already known from discover).
-   - Resolve `TEMPLATE_PATH`.
-   - Spawn `test-engineer` agent in parallel (pool of 5).
-3. Aggregate JSON outputs from all agents.
-4. Run `npm test` once on the whole package to verify nothing broke.
+2. **Read templates + conventions ONCE** at the start of the batch:
+   - For each classification present in the batch (slice / thunk / hook-* / service / container), read its template into a cache keyed by classification.
+   - Read `<plugin-root>/platforms/<PLATFORM>/conventions.md` into `CONVENTIONS_CONTENT`.
+3. For each file in the batch:
+   - Look up the cached template for its classification.
+   - Spawn `test-engineer` agent in parallel (pool of 5) with the template + conventions inlined into the prompt (NOT as paths — see Mode C above for the prompt shape).
+4. Aggregate JSON outputs from all agents.
+5. Run `npm test` once on the whole package to verify nothing broke.
 5. Report:
 
 ```

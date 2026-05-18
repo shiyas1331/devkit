@@ -25,22 +25,30 @@ The parent command passes you (in the prompt):
 PLATFORM=<react-native|...>
 SOURCE_FILE=<absolute path>
 CLASSIFICATION=<slice|thunk|hook-pure|hook-redux|hook-bottomsheet|service|container>
-TEMPLATE_PATH=<absolute path to platform template>
-CONVENTIONS_PATH=<absolute path to platform conventions.md>
 PACKAGE_ROOT=<absolute path to package — for resolving fixtures, mocks, jest>
 EXISTING_FIXTURES=<list of make*.ts files already present>
+
+TEMPLATE:
+<full content of the matching template inlined here by the parent>
+
+CONVENTIONS:
+<full content of the platform conventions.md inlined here by the parent>
 ```
+
+**No file paths to the devkit plugin are passed in.** The parent command reads
+the template + conventions ONCE per batch and inlines the content into every
+agent's prompt. This makes the agent fully self-contained and portable across
+machines / plugin installations.
 
 ## Process
 
-### Step 1 — Read the inputs
+### Step 1 — Read the source
 
-In parallel:
-- Read `SOURCE_FILE`
-- Read `TEMPLATE_PATH`
-- Read `CONVENTIONS_PATH`
+Just one file to read: `SOURCE_FILE`.
 
 If `EXISTING_FIXTURES` is non-empty, read any whose name suggests it's relevant to the source (e.g. `makeEducation.ts` for `educationListSlice.ts`).
+
+The `TEMPLATE` and `CONVENTIONS` are already in your prompt — use them directly, do NOT try to read them from disk.
 
 ### Step 2 — Analyze the source
 
