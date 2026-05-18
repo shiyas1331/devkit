@@ -37,8 +37,22 @@ Don't cover:
 ```
 
 The trick: install the listener's middleware into a real `configureStore`,
-spy on `store.dispatch`, dispatch the trigger action, then `await` a
-microtask flush so the effect runs, then assert on the spy.
+**append a recorder middleware** to capture every action that flows through
+the chain, dispatch the trigger action, then `await` a microtask flush so
+the effect runs, then assert against the recorded actions.
+
+> ## ⚠️ Why NOT `jest.spyOn(store, 'dispatch')`
+>
+> **It looks right and silently fails.** Listener middleware captures the
+> store's `dispatch` reference at `configureStore()` time. `jest.spyOn`
+> swaps the PUBLIC property (`store.dispatch`) AFTER creation, but the
+> listener already holds the original function reference — so dispatches
+> from inside `effect: (action, listenerApi) => listenerApi.dispatch(...)`
+> bypass the spy entirely.
+>
+> **Always use a recorder middleware.** It's part of the chain itself, so
+> every action — including ones dispatched from inside listener effects —
+> flows through it.
 
 ## Template
 
@@ -48,15 +62,18 @@ microtask flush so the effect runs, then assert on the spy.
  *
  * {{ short purpose — one line }}
  *
- * Pattern: install the listener middleware in a focused store, dispatch
- * the trigger action, await the effect's microtask flush, assert what
- * got dispatched in response.
+ * Pattern: install the listener middleware + a recorder middleware in a
+ * focused store, dispatch the trigger action, await the effect's
+ * microtask flush, then assert against the recorder. Do NOT use
+ * jest.spyOn(store, 'dispatch') — the listener captures dispatch at
+ * configure time, so the spy never sees its internal dispatches.
  */
-import { configureStore } from '@reduxjs/toolkit';
+import { configureStore, type Middleware } from '@reduxjs/toolkit';
 import { {{ listenerName }} } from '../{{ moduleName }}';
-// Trigger action creators (what fires the effect)
+// Trigger action creators (what fires the effect — must be REAL, not stubbed,
+// because the listener uses `actionCreator.match(action)` to decide if it fires)
 import { {{ triggerThunks.join(', ') }} } from '{{ triggerModule }}';
-// Response action creators (what the effect dispatches — to assert with)
+// Response action creators (what the effect dispatches — for assertions)
 import {
   {{ responseActions.join(', ') }}
 } from '{{ responseModule }}';
@@ -83,25 +100,50 @@ jest.mock('@api/apiClient', () => ({
   HttpMethod: { GET: 'GET', POST: 'POST', PUT: 'PUT', PATCH: 'PATCH', DELETE: 'DELETE' },
 }));
 
-const makeStore = () =>
-  configureStore({
+/**
+ * Recorder middleware — captures every action that flows through the chain,
+ * including ones dispatched from inside listener effects (which jest.spyOn
+ * CANNOT intercept, because the listener middleware captured the original
+ * dispatch reference at store creation time).
+ *
+ * `recorded` is a per-test array, reset by re-creating the store.
+ */
+const makeStoreAndRecorder = () => {
+  const recorded: any[] = [];
+  const recorderMiddleware: Middleware = () => next => action => {
+    recorded.push(action);
+    return next(action);
+  };
+  const store = configureStore({
     reducer: () => ({}),
     middleware: gDM =>
       gDM({ serializableCheck: false, immutableCheck: false })
-        .prepend({{ listenerName }}.middleware),
+        .prepend({{ listenerName }}.middleware)
+        .concat(recorderMiddleware),
   });
+  return { store, recorded };
+};
+
+/**
+ * Helpers to assert against the recorder.
+ */
+const wasDispatched = (recorded: any[], type: string) =>
+  recorded.some(a => a?.type === type);
+
+const findDispatched = (recorded: any[], type: string) =>
+  recorded.find(a => a?.type === type);
 
 /**
  * Listener effects are async — give the microtask queue + any awaits
- * inside the effect a chance to flush before we assert.
+ * inside the effect a chance to flush before we assert. Some effects
+ * chain multiple awaits; call flush() twice if assertions miss.
  */
-const flushEffect = () => new Promise(resolve => setImmediate(resolve));
+const flush = () => new Promise(resolve => setImmediate(resolve));
 
 describe('{{ listenerName }}', () => {
   describe('{{ triggerThunkName }}.fulfilled', () => {
     it('{{ happy_path_contract }}', async () => {
-      const store = makeStore();
-      const dispatchSpy = jest.spyOn(store, 'dispatch');
+      const { store, recorded } = makeStoreAndRecorder();
       const payload = {{ trigger_payload }};
 
       store.dispatch({
@@ -110,11 +152,14 @@ describe('{{ listenerName }}', () => {
         meta: { arg: {{ trigger_meta_arg }}, requestId: 'test', requestStatus: 'fulfilled' },
       });
 
-      await flushEffect();
+      await flush();
 
-      // Assert the response actions
-      expect(dispatchSpy).toHaveBeenCalledWith({{ expected_response_action_1 }});
-      expect(dispatchSpy).toHaveBeenCalledWith({{ expected_response_action_2 }});
+      // Assert by type to keep tests resilient to payload shape changes.
+      expect(wasDispatched(recorded, {{ expected_response_action_creator }}.type)).toBe(true);
+
+      // For payload assertions, find the recorded action and inspect it.
+      const recordedAction = findDispatched(recorded, {{ expected_response_action_creator }}.type);
+      expect(recordedAction?.payload).toEqual({{ expected_payload }});
     });
 
     {{ for each branch }}
@@ -134,6 +179,18 @@ describe('{{ listenerName }}', () => {
 });
 ```
 
+### Two gotchas the agent should always remember
+
+1. **Do NOT mock the trigger thunk modules.** The listener uses
+   `actionCreator.match(action)` to decide if it fires. Stubbed thunks
+   have `match: undefined` or a `jest.fn()` returning `undefined` (falsy),
+   so the listener never fires and your tests look like the effect never
+   ran. Import the REAL thunk modules; mock only the underlying API/DB
+   they call into.
+
+2. **`jest.spyOn(store, 'dispatch')` will not see listener-dispatched
+   actions.** Always use the recorder middleware pattern above.
+
 ## Worked example — `educationListener` (page-1 vs page>1 branch)
 
 Source: `src/store/doctorProfileStore/education/educationListener.ts`
@@ -147,7 +204,7 @@ Effect logic:
 Test:
 
 ```ts
-import { configureStore } from '@reduxjs/toolkit';
+import { configureStore, type Middleware } from '@reduxjs/toolkit';
 import { educationListener } from '../educationListener';
 import { fetchInitialEducationDetails } from '@api/doctorProfileApi/apiServices/DoctorProfileDetailsService';
 import {
@@ -167,21 +224,38 @@ jest.mock('@api/apiClient', () => ({
   HttpMethod: { GET: 'GET', POST: 'POST', PUT: 'PUT', PATCH: 'PATCH', DELETE: 'DELETE' },
 }));
 
-const makeStore = () =>
-  configureStore({
+// Recorder middleware — captures every action that flows through the chain.
+// Required because jest.spyOn(store, 'dispatch') CANNOT see actions dispatched
+// from inside listener effects (the listener captured dispatch at configure
+// time, before the spy replaced the public property).
+const makeStoreAndRecorder = () => {
+  const recorded: any[] = [];
+  const recorderMiddleware: Middleware = () => next => action => {
+    recorded.push(action);
+    return next(action);
+  };
+  const store = configureStore({
     reducer: () => ({}),
     middleware: gDM =>
       gDM({ serializableCheck: false, immutableCheck: false })
-        .prepend(educationListener.middleware),
+        .prepend(educationListener.middleware)
+        .concat(recorderMiddleware),
   });
+  return { store, recorded };
+};
+
+const wasDispatched = (recorded: any[], type: string) =>
+  recorded.some(a => a?.type === type);
+
+const findDispatched = (recorded: any[], type: string) =>
+  recorded.find(a => a?.type === type);
 
 const flush = () => new Promise(r => setImmediate(r));
 
 describe('educationListener', () => {
   describe('fetchInitialEducationDetails.fulfilled', () => {
     it('SETs (not appends) on page 1', async () => {
-      const store = makeStore();
-      const spy = jest.spyOn(store, 'dispatch');
+      const { store, recorded } = makeStoreAndRecorder();
       const payload = { educationList: [{ id: 'edu-1' }] };
 
       store.dispatch({
@@ -191,13 +265,12 @@ describe('educationListener', () => {
       });
       await flush();
 
-      expect(spy).toHaveBeenCalledWith(setEducationListAPI(payload));
-      expect(spy).not.toHaveBeenCalledWith(appendEducationListAPI(payload));
+      expect(wasDispatched(recorded, setEducationListAPI.type)).toBe(true);
+      expect(wasDispatched(recorded, appendEducationListAPI.type)).toBe(false);
     });
 
     it('APPENDs (not sets) on page > 1', async () => {
-      const store = makeStore();
-      const spy = jest.spyOn(store, 'dispatch');
+      const { store, recorded } = makeStoreAndRecorder();
       const payload = { educationList: [{ id: 'edu-2' }] };
 
       store.dispatch({
@@ -207,13 +280,12 @@ describe('educationListener', () => {
       });
       await flush();
 
-      expect(spy).toHaveBeenCalledWith(appendEducationListAPI(payload));
-      expect(spy).not.toHaveBeenCalledWith(setEducationListAPI(payload));
+      expect(wasDispatched(recorded, appendEducationListAPI.type)).toBe(true);
+      expect(wasDispatched(recorded, setEducationListAPI.type)).toBe(false);
     });
 
     it('always dispatches updateVerifiedEducationsInOverview with SYNC actionType', async () => {
-      const store = makeStore();
-      const spy = jest.spyOn(store, 'dispatch');
+      const { store, recorded } = makeStoreAndRecorder();
       const payload = { educationList: [{ id: 'edu-1' }] };
 
       store.dispatch({
@@ -223,20 +295,18 @@ describe('educationListener', () => {
       });
       await flush();
 
-      expect(spy).toHaveBeenCalledWith(
-        updateVerifiedEducationsInOverview({
-          educationAPI: payload.educationList,
-          actionType: 'SYNC',
-        }),
-      );
+      const action = findDispatched(recorded, updateVerifiedEducationsInOverview.type);
+      expect(action?.payload).toEqual({
+        educationAPI: payload.educationList,
+        actionType: 'SYNC',
+      });
     });
 
     it('dispatches resetAndAddDraftEducationList after loading drafts from SQLite', async () => {
       const drafts = [{ id: 'draft-1' }];
       require('src/database/dbUtil').DraftEducationService.getDrafts.mockResolvedValueOnce(drafts);
 
-      const store = makeStore();
-      const spy = jest.spyOn(store, 'dispatch');
+      const { store, recorded } = makeStoreAndRecorder();
 
       store.dispatch({
         type: fetchInitialEducationDetails.fulfilled.type,
@@ -244,15 +314,16 @@ describe('educationListener', () => {
         meta: { arg: { page: 1, doctorId: 'doc-1' } },
       });
       await flush();
+      await flush(); // second tick — DB load + dispatch is a multi-await chain
 
-      expect(spy).toHaveBeenCalledWith(resetAndAddDraftEducationList(drafts));
+      const action = findDispatched(recorded, resetAndAddDraftEducationList.type);
+      expect(action?.payload).toEqual(drafts);
     });
 
     it('swallows SQLite errors silently (does NOT dispatch resetAndAddDraftEducationList on failure)', async () => {
       require('src/database/dbUtil').DraftEducationService.getDrafts.mockRejectedValueOnce(new Error('DB down'));
 
-      const store = makeStore();
-      const spy = jest.spyOn(store, 'dispatch');
+      const { store, recorded } = makeStoreAndRecorder();
 
       store.dispatch({
         type: fetchInitialEducationDetails.fulfilled.type,
@@ -260,9 +331,9 @@ describe('educationListener', () => {
         meta: { arg: { page: 1, doctorId: 'doc-1' } },
       });
       await flush();
+      await flush();
 
-      const calls = spy.mock.calls.map(c => (typeof c[0] === 'object' ? c[0].type : c[0]));
-      expect(calls).not.toContain(resetAndAddDraftEducationList.type);
+      expect(wasDispatched(recorded, resetAndAddDraftEducationList.type)).toBe(false);
     });
   });
 });

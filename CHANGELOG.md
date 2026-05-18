@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.4.4 (2026-05-18)
+
+### Fix: listener template uses recorder middleware (not `jest.spyOn`)
+
+Real-world discovery from running the CAT-494 listener batch (8 files / 269 tests / 25 latent bugs):
+
+**`jest.spyOn(store, 'dispatch')` does NOT intercept dispatches from inside listener effects.** The listener middleware captures the original `dispatch` reference at `configureStore()` time. The spy replaces the public property *after* creation, but the listener already holds the original function — so internal `listenerApi.dispatch(...)` calls bypass the spy entirely.
+
+Without this fix, generated listener tests look correct (no syntax errors, jest runs them) but every assertion silently fails because the listener never reports its dispatches. Each agent run was hitting this and using one of its 2 retries to discover it.
+
+**Fix:** replaced the `jest.spyOn(store, 'dispatch')` pattern in the template with a **recorder middleware** appended to the middleware chain. Recorder middleware is part of the chain itself, so every action — including listener-dispatched ones — flows through it and gets captured.
+
+Also added an explicit "Two gotchas the agent should always remember" callout:
+1. Do NOT mock the trigger thunk modules — the listener uses `actionCreator.match(action)` which fails on stubbed thunks
+2. NEVER use `jest.spyOn(store, 'dispatch')` for listeners — always recorder middleware
+
+Files:
+- `platforms/react-native/templates/listener.template.md` — template + worked `educationListener` example both rewritten with recorder middleware pattern
+- `.claude-plugin/plugin.json` — bumped to 1.4.4
+
 ## v1.4.3 (2026-05-18)
 
 ### Fix: bump `.claude-plugin/plugin.json` version
