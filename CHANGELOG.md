@@ -1,5 +1,31 @@
 # Changelog
 
+## v1.4.2 (2026-05-18)
+
+### Listener test template + agent-assigned priorities + auto memory prompt
+
+**Three things in one release** — all stemming from real CAT-494 friction.
+
+**1. Listener test template** — for Redux Toolkit `createListenerMiddleware` files (e.g. `educationListener.ts`). Closes the gap where the slice subtree coverage in `provider-app/packages/editors` was sitting at 42% because 8 listener files weren't testable with the existing slice/thunk/hook templates.
+
+- `platforms/react-native/templates/listener.template.md` — new template covering install-middleware → dispatch-trigger → await-flush → assert-spy with the `educationListener` worked example (page-1 vs page>1 branch + SQLite error-swallow path)
+- `commands/cover.md` — discovery rules now classify `createListenerMiddleware` files and `*Listener.ts` files as `listener` classification; inventory JSON adds a `listeners` bucket
+- `platforms/react-native/conventions.md` — new section 13 documents the listener test pattern
+
+**2. Agent assigns priority + category to every latent bug**
+
+- `agents/test-engineer.md` — agent's JSON output now includes `priority` (`P0`/`P1`/`P2`/`P3`) and `category` (`stale-closure`, `math-random-id`, `numeric-sort-string-id`, etc.) per bug
+- Full P0–P3 rubric in the agent prompt: P0 = every-user impact, P1 = specific-path issues, P2 = edge cases, P3 = cosmetic
+- Eliminates manual priority triage after every batch — known categories are auto-tagged from the 65-bug taxonomy built during CAT-494
+
+**3. Auto-prompt to add latent bugs to memory** — fixes a UX papercut where the user had to manually ask "add these to memory" after every batch.
+
+- `commands/cover.md` — Modes C (single file) and D (batch) now auto-trigger an `AskUserQuestion` whenever `latent_bugs.length > 0`
+- Three choices: "Yes — all with priorities" / "Yes — only P0/P1" / "Skip"
+- If yes, writes to `memory/<package>-latent-bugs.md` with a priority-index table + detailed entries + a MEMORY.md pointer line
+
+All three changes compose: the listener template generates bugs → the agent tags them with priorities + categories → the command prompts to persist them. Zero manual book-keeping.
+
 ## v1.4.1 (2026-05-18)
 
 ### Fix: inline template + conventions into agent prompts

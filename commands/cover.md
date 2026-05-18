@@ -250,6 +250,8 @@ For each .ts/.tsx file (excluding __tests__/, __mocks__/, *.d.ts, *.types.ts):
     | imports createSlice from @reduxjs/toolkit | slice |
     | exports createAsyncThunk(...) | thunk |
     | filename matches use*.{ts,tsx} and exports the function | hook-pure / hook-redux / hook-bottomsheet |
+    | imports `createListenerMiddleware` from @reduxjs/toolkit | listener |
+    | filename ends in `Listener.ts(x)` and exports a middleware | listener |
     | a static-method class with DB or external calls | service |
     | filename ends in Container.tsx, mounts a screen | container |
     | pure functions in utils/, no React/Redux deps | util |
@@ -271,6 +273,7 @@ Return a JSON inventory grouped by classification:
     ...
   ],
   "thunks": [...],
+  "listeners": [...],
   "hooks": { "pure": [...], "redux": [...], "bottomsheet": [...] },
   "services": [...],
   "containers": [...]
@@ -333,13 +336,13 @@ The agent does NOT read these files itself — they're already in its prompt. Th
 
 6. Wait for its JSON output. Read it.
 
-6. Report:
+7. Report:
 
 ```
 ✅ <SOURCE_FILE>: {{ tests_added }} tests added, all passing.
 
 Latent bugs flagged ({{ count }}):
-  • Line {{ N }}: {{ description }}
+  • Line {{ N }} [{{ priority }}]: {{ description }}
 
 Fixtures created: {{ list or "none" }}
 Retries used: {{ N }}
@@ -348,6 +351,8 @@ Review the diff and commit when ready.
 ```
 
 If status is `needs-human` or `skipped`, surface the reason prominently.
+
+8. **If `latent_bugs.length > 0`, auto-prompt to add to memory** — see "Latent bugs prompt" section below. Do NOT wait for the user to ask manually.
 
 ### Mode D — Batch
 
@@ -372,7 +377,10 @@ Goal: cover all files in a named batch (e.g. all slices).
 ⏭️  Skipped:      {{ N }} files (see below)
 
 Latent bugs flagged across batch ({{ count }}):
-  • <file:line> — <description>
+  P0: {{ N }}    P1: {{ N }}    P2: {{ N }}    P3: {{ N }}
+
+  • <file:line> [P0]: <description>
+  • <file:line> [P1]: <description>
   • ...
 
 Files needing human attention:
@@ -385,6 +393,78 @@ Full suite: `npm test` → {{ N }} suites, {{ N }} tests, {{ pass/fail }}
 
 No commits made. Review `git status` and commit when ready.
 ```
+
+6. **If `latent_bugs.length > 0` across the batch, auto-prompt to add to memory** — see "Latent bugs prompt" section below. Do NOT wait for the user to ask manually.
+
+### Latent bugs prompt (Modes C and D — auto-triggered when count > 0)
+
+Whenever a coverage run finishes and `latent_bugs.length > 0`, the command MUST auto-prompt the user using the `AskUserQuestion` tool. Do NOT skip this step. Do NOT wait for the user to ask manually.
+
+```
+question: "{{ N }} latent bug(s) flagged. Add to memory for follow-up?"
+header: "Memory"
+multiSelect: false
+options:
+  - label: "Yes — add all with priorities"
+    description: "Append every bug to memory/<package>-latent-bugs.md grouped by P0/P1/P2/P3. Updates MEMORY.md pointer. Recommended — keeps a permanent record for follow-up tickets. Example: 21 bugs from this batch joined the 44 from earlier batches in editors-latent-bugs-cat494-batch.md."
+  - label: "Yes — only P0 and P1 (high priority)"
+    description: "Append only the high-priority bugs. Skip P2/P3 housekeeping items. Faster, but loses some cosmetic/preventive findings. Useful when memory is getting noisy."
+  - label: "Skip — don't add"
+    description: "Bugs are visible in this turn's report only. They will NOT be persisted. Pick this if these bugs are already tracked in a ticket or aren't worth following up."
+```
+
+**Action mapping:**
+
+| Choice | What the command does |
+|---|---|
+| Yes — all with priorities | Write/append to `memory/<package>-latent-bugs.md` with full priority tags, write/update one-line entry in `MEMORY.md` pointing at the file |
+| Yes — only P0/P1 | Same as above but filtered. Note in the memory entry that P2/P3 were skipped intentionally |
+| Skip | Print "Latent bugs not persisted." and proceed. Bugs remain in the turn's report for the user to copy manually if they change their mind |
+
+**Memory file format** (consistent with `editors-latent-bugs-cat494-batch.md`):
+
+```markdown
+---
+name: <package>-latent-bugs
+description: Production-code quirks surfaced by /devkit:cover test-engineer agents. Tests pin current behaviour; fixes belong in a separate ticket.
+metadata:
+  type: project
+---
+
+## ⚡ Priority index
+
+### 🔴 P0 — fix first (active misbehavior, every-user impact)
+| # | Bug | Why P0 |
+|---|---|---|
+| 1 | `<file>:<line>` — <description> | <agent-supplied rationale> |
+
+### 🟠 P1 — fix soon (real UX issues on specific paths)
+...
+
+### 🟡 P2 — moderate
+...
+
+### 🟢 P3 — minor
+...
+
+---
+
+## Detailed entries
+
+### 1. `<file>:<line>` [P0] — <title>
+<description>
+*Test pinning current behaviour: `<test-file>`*
+
+...
+```
+
+**MEMORY.md pointer format** (one line, ~150 chars):
+
+```markdown
+- [Latent bugs in <package>](memory/<package>-latent-bugs.md) — N production-code bugs flagged by /devkit:cover agents (M P0, M P1, M P2, M P3). Top concerns: <1-2 most serious by short name>.
+```
+
+If a memory file already exists for this package, **append** to it (new entries get numbered after the last existing one). Do NOT clobber existing entries. Update the priority index counts to reflect the merged total.
 
 ### Mode E — Report
 

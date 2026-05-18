@@ -242,7 +242,40 @@ that doesn't block test writing:
 
 ---
 
-## 13. Latent bug surfacing
+## 13. Listener tests — install middleware, dispatch trigger, await flush
+
+For `createListenerMiddleware` files (one per slice typically), the test
+pattern differs from slice/thunk/hook:
+
+```ts
+const makeStore = () => configureStore({
+  reducer: () => ({}),
+  middleware: gDM => gDM({serializableCheck: false, immutableCheck: false})
+    .prepend(myListener.middleware),
+});
+
+const flush = () => new Promise(r => setImmediate(r));
+
+it('listener dispatches Y when X.fulfilled fires', async () => {
+  const store = makeStore();
+  const spy = jest.spyOn(store, 'dispatch');
+
+  store.dispatch({ type: someThunk.fulfilled.type, payload, meta: { arg } });
+  await flush();  // give the listener's async effect a chance to run
+
+  expect(spy).toHaveBeenCalledWith(expectedFollowUpAction(payload));
+});
+```
+
+See `templates/listener.template.md` for the worked example with the
+`educationListener` (page-1 vs page>1 branch, error swallow path).
+
+The mental model: slice/thunk tests assert STATE changes; listener tests
+assert WHICH ACTIONS GOT DISPATCHED IN RESPONSE.
+
+---
+
+## 14. Latent bug surfacing
 
 When the agent finds a code quirk:
 1. Write the test that pins **current** behavior.

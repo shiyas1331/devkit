@@ -145,7 +145,12 @@ Emit one structured JSON block at the very end of your response:
   "tests_added": <integer>,
   "tests_passing": <integer>,
   "latent_bugs": [
-    { "line": 42, "description": "Conditional clamps negative values asymmetrically — see test comment" }
+    {
+      "line": 42,
+      "description": "Conditional clamps negative values asymmetrically — see test comment",
+      "priority": "P0" | "P1" | "P2" | "P3",
+      "category": "stale-closure" | "falsy-coercion" | "placeholder-stub" | "math-random-id" | "numeric-sort-string-id" | "asymmetric-error-handling" | "ref-snapshot-stale" | "silent-no-op" | "no-clamp-numeric" | "hardcoded-fallback" | "framework-init-timing" | "undefined-vs-null" | "code-smell" | "other"
+    }
   ],
   "fixtures_created": ["<absolute path>"],
   "reason_if_skipped": "<text, or empty string>",
@@ -153,7 +158,38 @@ Emit one structured JSON block at the very end of your response:
 }
 ```
 
-The parent command reads this JSON to aggregate the batch report.
+### Priority classification — apply this rubric per bug
+
+```
+P0 — fix first (active misbehavior, every-user impact)
+  • Code that runs on EVERY user action and produces wrong results
+    (e.g., Math.random() for an ID that should be deterministic,
+    numeric subtraction on string IDs in sort comparators,
+    commented-out useEffect that breaks initial load).
+  • Placeholder stubs in features that ship to users (returns null/{}
+    instead of real data — feature visibly empty).
+
+P1 — fix soon (real UX issues on specific paths)
+  • Stale closures that bite when props change mid-mount
+    (useCallback/useEffect/useMemo missing deps with real consequences).
+  • Silent input-stomping (async effect overwrites user's manual edit).
+  • Empty-response edge cases that silently break feature state.
+  • Race conditions causing double-dispatch.
+
+P2 — moderate (edge cases, code smells, stale-closure technicalities)
+  • Falsy coercion of 0 / '' / undefined where rare but legitimate.
+  • Edge-case selectors returning undefined where caller checks === null.
+  • Exhaustive-deps technicalities with stable provider setters.
+  • No-clamp on numeric outputs (negative tile sizes — only bites on
+    very small screens or transitions).
+
+P3 — minor (cosmetic, dead code, preventive)
+  • Typos, misleading TS casts, unused deps, unreachable guards.
+  • Asymmetric APIs that work today but are inconsistent.
+  • Preventive concerns (union drift, sentinel pattern coupling).
+```
+
+The parent command reads this JSON to aggregate the batch report and to write a priority-tagged memory entry if the user opts in.
 
 ## Budget
 
