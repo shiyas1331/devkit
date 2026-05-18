@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.4.3 (2026-05-18)
+
+### Fix: bump `.claude-plugin/plugin.json` version
+
+The marketplace reads version from `plugin.json`, not git tags. Versions v1.4.1 and v1.4.2 were tagged on GitHub but the manifest stayed at `1.4.0`, so `claude plugin update` correctly reported "already at the latest version (1.4.0)" — frustrating but technically right.
+
+This release bumps the manifest to match the changelog. No functional code changes vs v1.4.2.
+
+**Lesson** (added to project memory): when releasing a Claude Code plugin, ALWAYS update `.claude-plugin/plugin.json` `version` field alongside the changelog + git tag — three things in sync.
+
 ## v1.4.2 (2026-05-18)
 
 ### Listener test template + agent-assigned priorities + auto memory prompt
