@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.4.1 (2026-05-18)
+
+### Fix: inline template + conventions into agent prompts
+
+Parent command now reads templates and conventions ONCE per batch and inlines the content into each `test-engineer` agent's prompt. Removes the path-based handoff that only worked when devkit was installed at a hardcoded local path.
+
+- `agents/test-engineer.md` — agent reads only `SOURCE_FILE`; `TEMPLATE_PATH` / `CONVENTIONS_PATH` replaced with inlined `TEMPLATE:` / `CONVENTIONS:` blocks in the prompt
+- `commands/cover.md` — Mode C (single file) and Mode D (batch) updated: parent reads template + conventions once, inlines content into every agent call instead of passing absolute paths
+
+Net effect: agents are now fully self-contained and portable across machines / plugin installations (plugin cache, local clone, anywhere). Also avoids redundant file reads when batching — for a 20-file batch, saves 40 file reads (2 per agent).
+
 ## v1.4.0 (2026-05-18)
 
 ### New command: `/devkit:cover`
