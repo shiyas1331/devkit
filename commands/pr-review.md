@@ -12,28 +12,69 @@ Reviewer-side tool. Author does nothing. Mine git history + codebase patterns + 
 
 ## Mode picker (front door for invocations without flags)
 
-**Trigger:** the picker fires when ANY of these are true:
-- `$ARGUMENTS` is empty
-- `$ARGUMENTS` contains `--help`, `-h`, or `?` as a standalone token
-- `$ARGUMENTS` contains no `--*` flag at all (a bare PR identifier counts as no-flags)
+### Front door A — picker fires by default
 
-**Skip the picker** when any `--*` flag is present — power users with a known invocation bypass the menu and run directly.
+**Trigger:**
+- `$ARGUMENTS` is empty, OR
+- `$ARGUMENTS` contains only a PR identifier (URL / number / branch) with no `--*` flag
 
-When triggered:
+Use the `AskUserQuestion` tool — chained questions for action then depth.
 
-1. Locate the help reference at `<plugin-root>/references/help/pr-review.md` (two directories up from this command file).
+**Question 1** — what to do with the review:
+
+```
+question: "What do you want to do with the review?"
+header: "Action"
+multiSelect: false
+options:
+  - label: "Read the brief"
+    description: "Print TL;DR + triage + decisions + risks in the terminal. Example: '/devkit:pr-review 409' → full brief printed, ~60s read."
+  - label: "Save to disk"
+    description: "Write the brief to specs/reviews/PR-<num>-<slug>.md for later sharing. Example: PR-409-add-establishment-onboarding.md created in the repo."
+  - label: "Post as a PR comment"
+    description: "Drop the whole brief as one comment on the GitHub PR. Confirms before posting. Example: review summary appears as a single comment from your account."
+  - label: "Post as a full review (inline comments)"
+    description: "Native code-review style — comments at file:line with a summary body. Confirms each inline before posting. Best for thorough reviews of important PRs."
+```
+
+If `$ARGUMENTS` has no PR yet, prompt: `"PR? (URL, number, or branch name — e.g. 409 or feat/CAT-260-foo)"`.
+
+**Question 2** (only if "Read the brief" or "Save to disk") — depth:
+
+```
+question: "How much depth?"
+header: "Depth"
+multiSelect: false
+options:
+  - label: "Full brief (default)"
+    description: "Includes TL;DR, triage table, key decisions, conventions, risks. Example: ~60s read with everything a reviewer needs."
+  - label: "Quick TL;DR only"
+    description: "Just the headline + triage table. Example: ~30s read for skimming a PR you've already seen once."
+```
+
+Map the chosen Action + Depth to the command:
+
+| Action | Depth | Command |
+|---|---|---|
+| Read | Full | `/devkit:pr-review <PR>` |
+| Read | Quick | `/devkit:pr-review <PR> --depth=quick` |
+| Save | Full | `/devkit:pr-review <PR> --save` |
+| Save | Quick | `/devkit:pr-review <PR> --depth=quick --save` |
+| Post comment | (skip Q2) | `/devkit:pr-review <PR> --post` |
+| Post review | (skip Q2) | `/devkit:pr-review <PR> --post-review` |
+
+### Front door B — explicit help token → verbose reference
+
+**Trigger:** `$ARGUMENTS` contains `--help`, `-h`, or `?` as a standalone token.
+
+1. Locate the help reference at `<plugin-root>/references/help/pr-review.md`.
 2. Read it.
-3. Print the **"Scenario menu"** section verbatim.
-4. Prompt:
-   - If `$ARGUMENTS` already has a PR (no flags): `"Selected PR: <PR>. Pick a mode (e.g. `5`, or combine: `2,4`). Type `?` for full flags."`
-   - Else: `"Pick a number + the PR (e.g. `5 409`). Combine modes with commas (e.g. `2,4 409`). Type `?` for full flags."`
-5. **Wait for the user's reply** — do NOT proceed to any other phase on this turn.
-6. Parse the reply using the **"Number → command mapping"** in the help file:
-   - **`<N>` or `<N>,<M>,...`** followed by args — resolve each number to its flag(s), combine them, append the args, then re-invoke `/devkit:pr-review` with that final command.
-     - If picks conflict in a mutually-exclusive category (READ: 1↔2, POST: 4↔5), use the more specific pick or prompt the user to choose.
-   - **`?` / `flags` / `full`** — print the **"Verbose flag reference"** section, then re-prompt.
-   - **Raw `/devkit:pr-review <PR> ...` command** — run as-is.
-   - **Anything else** — re-prompt with the menu.
+3. Print the **"Verbose flag reference"** section verbatim. Includes `--since=<commit>`, `--no-jira`, `--focus=<glob>`, `--bulk-confirm`.
+4. STOP.
+
+### Skip both front doors
+
+When any `--*` flag is present, both front doors are skipped — the command proceeds directly.
 
 ## Input
 

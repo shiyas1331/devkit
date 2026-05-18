@@ -16,27 +16,52 @@ You explain the **thought process** behind a piece of code. The most recent comm
 
 ## Mode picker (front door for invocations without flags)
 
-**Trigger:** the picker fires when ANY of these are true:
-- `$ARGUMENTS` is empty
-- `$ARGUMENTS` contains `--help`, `-h`, or `?` as a standalone token
-- `$ARGUMENTS` contains no `--*` flag (a bare target like `file:line` counts as no-flags)
+### Front door A — picker fires by default
 
-**Skip the picker** when any `--*` flag is present.
+**Trigger:**
+- `$ARGUMENTS` is empty, OR
+- `$ARGUMENTS` contains only a target (`file:line` / `file` / `file:start-end`) with no `--*` flag
 
-When triggered:
+Use the `AskUserQuestion` tool.
+
+```
+question: "How deep should I go?"
+header: "Depth"
+multiSelect: false
+options:
+  - label: "Quick why (~10s answer)"
+    description: "One paragraph + sources + walk summary. Example: 'Why does apiClient.ts:188 retry on 401?' → 'CAT-260 added 401-retry for session-expiry recovery. Walked back through 3 commits.'"
+  - label: "Thorough drilldown"
+    description: "Adds PR description, key review-thread debate, secondary edits. Example: same query as above but includes the PR review where the retry count was debated."
+  - label: "JSON output"
+    description: "Machine-readable for tooling. Example: pipe into a script that auto-files a follow-up ticket if confidence < 0.5."
+  - label: "Custom (more flags)"
+    description: "Combine flags like --max-walk=10 or --depth + --json. Example: walk back 10 commits deep for a file with messy history. Pick this then paste the full command."
+```
+
+If `$ARGUMENTS` has no target yet, prompt: `"Target? (e.g. apiClient.ts:188, or apiClient.ts:120-150 for a range)"`.
+
+Map the choice + target to the command:
+
+| Choice | Command run |
+|---|---|
+| Quick why | `/devkit:why <target>` |
+| Thorough drilldown | `/devkit:why <target> --depth=thorough` |
+| JSON output | `/devkit:why <target> --json` |
+| Custom | (prompt user for the full command) |
+
+### Front door B — explicit help token → verbose reference
+
+**Trigger:** `$ARGUMENTS` contains `--help`, `-h`, or `?` as a standalone token.
 
 1. Locate the help reference at `<plugin-root>/references/help/why.md`.
 2. Read it.
-3. Print the **"Scenario menu"** section verbatim.
-4. Prompt:
-   - If `$ARGUMENTS` already has a target (no flags): `"Selected: <target>. Pick a mode (e.g. `1`, or combine: `2,5`). Type `?` for full flags."`
-   - Else: `"Pick a number + the target (e.g. `1 apiClient.ts:188`). Combine with commas (e.g. `2,5 apiClient.ts:188`). Type `?` for full flags."`
-5. **Wait for the user's reply** — do NOT proceed to any other phase on this turn.
-6. Parse the reply via the **"Number → command mapping"** in the help file:
-   - `<N>` or `<N>,<M>,...` followed by args — resolve numbers to flags, combine, append args, re-invoke.
-   - `?` / `flags` / `full` — print the **"Verbose flag reference"** section and re-prompt.
-   - Raw `/devkit:why ...` command — run as-is.
-   - Anything else — re-prompt.
+3. Print the **"Verbose flag reference"** section verbatim.
+4. STOP.
+
+### Skip both front doors
+
+When any `--*` flag is present, both front doors are skipped — the command proceeds directly.
 
 ## Input
 

@@ -12,27 +12,54 @@ Author-side tool. Read open reviewer comments, classify each, draft the right re
 
 ## Mode picker (front door for invocations without flags)
 
-**Trigger:** the picker fires when ANY of these are true:
-- `$ARGUMENTS` is empty
-- `$ARGUMENTS` contains `--help`, `-h`, or `?` as a standalone token
-- `$ARGUMENTS` contains no `--*` flag (a bare PR identifier counts as no-flags)
+### Front door A — picker fires by default
 
-**Skip the picker** when any `--*` flag is present.
+**Trigger:**
+- `$ARGUMENTS` is empty, OR
+- `$ARGUMENTS` contains only a PR identifier with no `--*` flag
 
-When triggered:
+Use the `AskUserQuestion` tool.
+
+```
+question: "How do you want to address the reviewer comments?"
+header: "Mode"
+multiSelect: false
+options:
+  - label: "Walk through each comment (default)"
+    description: "Classify, plan, walk every reviewer item with a y/n confirmation. Commits fixes, posts replies. Example: 12 comments on PR 409 → walk each one, confirm fix, commit batched."
+  - label: "Dry-run (show the plan only)"
+    description: "Preview the classification + proposed actions without changing files or posting. Example: see that 8 comments need code changes, 3 are questions, 1 can be auto-resolved — then decide."
+  - label: "Skip bot comments"
+    description: "Ignore CodeRabbit, dependabot, danger, etc. Focus on human reviewers. Example: 30 CodeRabbit nits + 5 human comments → only the 5 humans get addressed."
+  - label: "Auto-resolve threads after fixes"
+    description: "Skip the per-thread 'mark resolved? (y/n)' prompt — resolves automatically once the fix lands. Example: clean batches where you trust the resolution will be obvious."
+```
+
+If `$ARGUMENTS` has no PR yet, prompt: `"PR? (URL, number, or branch — e.g. 409 or feat/CAT-260-foo)"`.
+
+Map the choice to:
+
+| Choice | Command |
+|---|---|
+| Walk through | `/devkit:address-pr <PR>` |
+| Dry-run | `/devkit:address-pr <PR> --dry-run` |
+| Skip bots | `/devkit:address-pr <PR> --ignore-bots` |
+| Auto-resolve | `/devkit:address-pr <PR> --auto-resolve` |
+
+For advanced combos (`--reviewer=<login>`, `--ignore-bots --auto-resolve`), the user types the full command or invokes `--help`.
+
+### Front door B — explicit help token → verbose reference
+
+**Trigger:** `$ARGUMENTS` contains `--help`, `-h`, or `?` as a standalone token.
 
 1. Locate the help reference at `<plugin-root>/references/help/address-pr.md`.
 2. Read it.
-3. Print the **"Scenario menu"** section verbatim.
-4. Prompt:
-   - If `$ARGUMENTS` already has a PR (no flags): `"Selected PR: <PR>. Pick a mode (e.g. `2`, or combine: `3,5`). Type `?` for full flags."`
-   - Else: `"Pick a number + the PR (e.g. `2 409`). Combine with commas (e.g. `3,5 409`). Type `?` for full flags."`
-5. **Wait for the user's reply** — do NOT proceed to any other phase on this turn.
-6. Parse the reply via the **"Number → command mapping"** in the help file:
-   - `<N>` or `<N>,<M>,...` followed by args — resolve numbers to flags, combine, append args, re-invoke.
-   - `?` / `flags` / `full` — print the **"Verbose flag reference"** section and re-prompt.
-   - Raw `/devkit:address-pr ...` command — run as-is.
-   - Anything else — re-prompt.
+3. Print the **"Verbose flag reference"** section verbatim.
+4. STOP.
+
+### Skip both front doors
+
+When any `--*` flag is present, both front doors are skipped — the command proceeds directly.
 
 ## Input
 

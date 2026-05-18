@@ -174,6 +174,33 @@ Automatically instruments your code with trace logs, captures output from connec
 7. **Cleanup** — Removes all trace logs, keeps only the fix
 8. **Document** — Records the pattern for future reference
 
+### `/devkit:cover` — Automated unit test generation
+
+Discovers untested source files in a package, classifies each (slice/thunk/hook/service/container), and writes co-located tests using platform-specific templates. Runs jest after each, retries failures, and surfaces latent bugs found while reading the source. Platform-aware — react-native today; react/android/ios/node/java adapters slot in as drop-in folders under `platforms/`.
+
+Grounded in `provider-app/packages/editors` (512 tests / 56 suites + 3 latent bugs flagged). Target: ~67% time savings on subsequent packages vs writing tests by hand.
+
+**Usage:**
+```
+/devkit:cover                                          # interactive picker
+/devkit:cover packages/establishment                   # discover + plan
+/devkit:cover packages/establishment --setup           # one-time foundation scaffold
+/devkit:cover packages/establishment --batch slices    # cover every slice in the package
+/devkit:cover packages/establishment/src/store/feeSlice.ts   # single file
+/devkit:cover packages/establishment --report          # coverage delta + latent bugs
+```
+
+**Modes:**
+- **Setup** — copies jest.config, setup.ts, test-utils, native module mocks into a fresh package. One-time.
+- **Discover** — scans the package, groups untested files by classification, suggests batches.
+- **Write tests** — single file OR named batch (slices, thunks, hooks, services-containers). Spawns one `test-engineer` agent per file in parallel pools of 5.
+- **Report** — coverage delta + accumulated latent bugs.
+
+**Guarantees:**
+- Never modifies source files. Tests describe behaviour; they don't fix it.
+- Never commits. Engineer reviews diff and commits manually.
+- Flags latent bugs in the source as it goes — pins current behaviour with a test, surfaces in the report.
+
 ### `/devkit:locator-add` — Auto-instrument library components with QA locators
 
 Adds `testID` and `accessibilityLabel` props to React Native library components (e.g. `@practo/self-serve`) with default derivation from semantic props (`text`/`label`/`placeholder`). Once a library is instrumented, every consumer call site automatically gets a sensible testID — no per-call-site work needed in app code.
@@ -206,7 +233,7 @@ Detects when you're manually adding debug logs and suggests using `/devkit:trace
 
 ## Agents
 
-The plugin bundles 4 specialized agents that can be used standalone or are called by commands:
+The plugin bundles 6 specialized agents that can be used standalone or are called by commands:
 
 | Agent | Purpose |
 |-------|---------|
@@ -215,6 +242,7 @@ The plugin bundles 4 specialized agents that can be used standalone or are calle
 | `devkit:codebase-pattern-finder` | Find similar implementations and extract reusable patterns |
 | `devkit:web-search-researcher` | Research library docs, known issues, and best practices |
 | `devkit:convention-checker` | Check a diff against documented repo conventions (CLAUDE.md, etc.). Surfaces matches and deviations with severity. |
+| `devkit:test-engineer` | Per-file worker invoked by `/devkit:cover`. Reads one source file, picks a template, writes the test, runs jest, retries failures. Returns structured JSON. |
 
 ## Changelog
 

@@ -1,8 +1,48 @@
 # Changelog
 
-## v1.4.0 (2026-04-29)
+## v1.4.0 (2026-05-18)
 
-### New command: `/devkit:locator-add`
+### New command: `/devkit:cover`
+
+Automated unit-test scaffolding and generation. Platform-aware (react-native first; react/android/ios/node/java to follow). Grounded in `provider-app/packages/editors` (PR #470 foundation + #471 doctor profile coverage — 512 tests / 56 suites across 22 slices, 25 thunks, hooks, services, containers, plus 3 latent production bugs surfaced).
+
+Target: 60–70% time savings on subsequent packages. A medium-sized package that took ~1 work week of manual test work should drop to ~1.5 days with the tool.
+
+Files:
+- `commands/cover.md` — orchestrator with modes: discover, write tests (single-file or batch), setup foundation, report
+- `agents/test-engineer.md` — per-file agent: reads source, picks template, writes test, runs jest, retries failures, structured JSON output. Spawned in parallel pools by the parent command.
+- `platforms/react-native/` — first platform adapter
+  - `detect.md` — RN detection rules with positive + negative signals
+  - `conventions.md` — AAA, factories, mock-at-boundary, ref pattern, `as never` cast, latent-bug surfacing
+  - `templates/` — slice, thunk, hook-pure, hook-redux, hook-bottomsheet, service, container
+  - `scaffolds/` — jest.config, setup.ts, createTestStore, renderWithProviders, navigationMock
+  - `mocks/` — reanimated, safe-area-context, @practo/self-serve, fast-image (foundation set; extendable per package)
+- `references/help/cover.md` — verbose flag reference for power users
+
+Architecture leaves room for `platforms/react/`, `platforms/android/`, `platforms/ios/`, `platforms/node/`, `platforms/java/` — each is a drop-in folder with the same shape. The command and agent stay platform-agnostic.
+
+Phase 1 MVP. Phase 2 (live agent execution + batch mode polish) and Phase 3 (additional platforms) ride in follow-up versions.
+
+### Mode picker migrated to native `AskUserQuestion` across all commands
+
+The previous "read help file → print menu → ask for a number" pattern was slow and gated discovery behind users typing `--help`. Migrated all six commands to use the native `AskUserQuestion` tool:
+
+- Empty invocation now ALWAYS opens an interactive picker — no `--help` needed to discover modes.
+- Option descriptions include concrete examples so the choice is obvious at a glance.
+- `--help` / `-h` / `?` still works for power users who want the full flag reference.
+- Direct flag invocations (e.g. `/devkit:cover packages/X --setup`) skip the picker entirely.
+
+Migrated commands:
+- `commands/cover.md` — 2 chained questions (mode → scope)
+- `commands/trace.md` — 1 question (input type)
+- `commands/why.md` — 1 question (depth)
+- `commands/pr-review.md` — 2 chained questions (action → depth)
+- `commands/address-pr.md` — 1 question (mode)
+- `commands/locator-add.md` — 1 question (mode)
+
+Old picker pattern (loading external help file, parsing typed numbers) removed from all commands.
+
+### Earlier in this release cycle: `/devkit:locator-add` (originally cut on 2026-04-29 — never tagged)
 
 Auto-instruments React Native library components with `testID` and `accessibilityLabel` props plus default derivation from semantic props (`text` / `label` / `placeholder`). After running on a library like `@practo/self-serve`, every consumer call site automatically gets a sensible testID — no per-call-site work in app code.
 

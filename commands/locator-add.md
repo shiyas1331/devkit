@@ -19,26 +19,49 @@ Never narrate reasoning. Direct the next action.
 
 > **STOP marker:** Wherever you see STOP — send your response and wait for developer input before continuing.
 
-## Mode picker (front door for empty / help-token invocations)
+## Mode picker (front door for empty invocations)
 
-**Trigger:** the picker fires when:
-- `$ARGUMENTS` is empty, OR
-- `$ARGUMENTS` contains `--help`, `-h`, or `?` as a standalone token
+### Front door A — picker fires by default
 
-**Skip the picker** when any path argument is provided.
+**Trigger:** `$ARGUMENTS` is empty.
 
-When triggered:
+Use the `AskUserQuestion` tool.
+
+```
+question: "What do you want to do?"
+header: "Mode"
+multiSelect: false
+options:
+  - label: "Instrument (apply changes)"
+    description: "Add testID + accessibilityLabel to a file, directory, or whole library. Example: instrument omega/self-serve/src → every Button/Input/Card gets testID props forwarded, consumer call sites get auto-derived testIDs."
+  - label: "Dry-run (audit only)"
+    description: "Print the would-be changes without modifying any file. Recommended for the first run. Example: see that 47 of 60 components in self-serve are candidates, 13 are skipped (compound components)."
+  - label: "Custom naming (--naming flag)"
+    description: "Override the default testID naming convention. v1 only supports --naming=role (default). screen/full fall back with a warning. Example: --naming=role on self-serve → Button text='Update Profile' becomes testID='update-profile-button'."
+```
+
+After the answer, prompt for the path: `"Path? (file, directory, or library root — must be inside a package.json-rooted library)"`.
+
+Map the choice to:
+
+| Choice | Command |
+|---|---|
+| Instrument | `/devkit:locator-add <path>` |
+| Dry-run | `/devkit:locator-add <path> --dry-run` |
+| Custom naming | `/devkit:locator-add <path> --naming role` (and prompt for value) |
+
+### Front door B — explicit help token → verbose reference
+
+**Trigger:** `$ARGUMENTS` contains `--help`, `-h`, or `?` as a standalone token.
 
 1. Locate the help reference at `<plugin-root>/references/help/locator-add.md`.
 2. Read it.
-3. Print the **"Scenario menu"** section verbatim.
-4. Prompt: `"Pick a number + your inputs (e.g. \`1 path/to/library\`). Type \`?\` for full reference."`
-5. **Wait for the user's reply** — do NOT proceed on this turn.
-6. Parse the reply via the **"Number → command mapping"** in the help file:
-   - `<N> <inputs>` — re-invoke as the mapped command.
-   - `?` / `flags` / `full` — print the **"Verbose flag reference"** section and re-prompt.
-   - Raw `/devkit:locator-add ...` command — run as-is.
-   - Anything else — re-prompt.
+3. Print the **"Verbose flag reference"** section verbatim. Includes the full behaviour notes, component-suffix mapping, and worked examples.
+4. STOP.
+
+### Skip both front doors
+
+When any path argument is provided in `$ARGUMENTS`, both front doors are skipped — the command proceeds directly.
 
 ## Input
 

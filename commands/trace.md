@@ -17,26 +17,52 @@ Never explain the debugging process. Never narrate your reasoning. Just direct t
 
 > **STOP marker:** Wherever you see STOP — send your response and wait for developer input before continuing.
 
-## Mode picker (front door for empty / help-token invocations)
+## Mode picker (front door for empty invocations)
 
-**Trigger:** the picker fires when:
-- `$ARGUMENTS` is empty, OR
-- `$ARGUMENTS` contains `--help`, `-h`, or `?` as a standalone token
+### Front door A — empty input → interactive picker
 
-**Skip the picker** when any text description, `screenshot:<path>`, or `logs:<path>` is provided — those are the actual inputs and the command should proceed directly. (Unlike pr-review/why/address-pr, trace has no flags besides --help, so any non-help input means "go.")
+**Trigger:** `$ARGUMENTS` is empty.
 
-When triggered:
+Use the `AskUserQuestion` tool. Native UI is faster than reading the help file and printing a menu.
+
+```
+question: "How do you want to describe the bug?"
+header: "Input type"
+multiSelect: false
+options:
+  - label: "Text description only"
+    description: "Plain prose only. Example: 'login button does nothing after submit' — tool analyzes the code path, adds trace logs at strategic layers, then you reproduce."
+  - label: "Text + screenshot"
+    description: "Visual evidence + your description. Example: screenshot:/tmp/broken-layout.png with 'profile header overlaps the back button on iPhone X'. Tool reads the image as evidence."
+  - label: "Text + log file"
+    description: "Console/logcat dump + description. Example: logs:/tmp/logcat.txt with 'app crashes on launch after Firebase init'. Tool parses TRACE_* and ERROR entries."
+  - label: "Text + screenshot + log file"
+    description: "Everything from a single reproduction. Example: visual bug + logs captured at the moment it happened. Strongest signal for the tool — use when you have both."
+```
+
+After the answer, prompt for the actual inputs as plain text:
+
+| Choice | Follow-up prompt |
+|---|---|
+| Text only | "Describe the bug:" |
+| Text + screenshot | "Describe the bug, then paste the screenshot path on the next line (or include `screenshot:/path` inline):" |
+| Text + log file | "Describe the bug, then paste the log path (or include `logs:/path` inline):" |
+| Text + both | "Describe the bug, then attach both as `screenshot:/path` and `logs:/path`:" |
+
+Once the user replies, re-invoke `/devkit:trace <description> [screenshot:/path] [logs:/path]` with the collected inputs.
+
+### Front door B — explicit help token → verbose reference
+
+**Trigger:** `$ARGUMENTS` contains `--help`, `-h`, or `?` as a standalone token.
 
 1. Locate the help reference at `<plugin-root>/references/help/trace.md`.
 2. Read it.
-3. Print the **"Scenario menu"** section verbatim.
-4. Prompt: `"Pick a number + your inputs (e.g. `1 login button does nothing`). Type `?` for full reference."`
-5. **Wait for the user's reply** — do NOT proceed to any other phase on this turn.
-6. Parse the reply via the **"Number → command mapping"** in the help file:
-   - `<N> <inputs>` — re-invoke as the mapped command.
-   - `?` / `flags` / `full` — print the **"Verbose flag reference"** section and re-prompt.
-   - Raw `/devkit:trace ...` command — run as-is.
-   - Anything else — re-prompt.
+3. Print the **"Verbose flag reference"** section verbatim.
+4. STOP.
+
+### Skip both front doors
+
+When any text description, `screenshot:<path>`, or `logs:<path>` is provided in `$ARGUMENTS`, both front doors are skipped — the command proceeds directly.
 
 ## Input
 
