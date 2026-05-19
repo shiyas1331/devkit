@@ -1,5 +1,48 @@
 # Changelog
 
+## v1.4.6 (2026-05-19)
+
+### Extend sub-command pattern to `pr-review`, `address-pr`, and `why`
+
+Following v1.4.5's `/devkit:cover:*` sub-commands, the same delegation pattern now applies to the three other high-traffic commands. Parent `.md` files (pickers) stay unchanged — sub-commands are additive shortcuts that show up in autocomplete BEFORE pressing Enter.
+
+**Skipped:** `trace` (modes are input variants, not actions — picker reads better) and `locator-add` (only 1 distinct mode worth a shortcut — not worth a folder).
+
+#### `commands/pr-review/` — 5 sub-commands
+- `/devkit:pr-review:quick` — `--depth=quick` (TL;DR + triage only)
+- `/devkit:pr-review:save` — `--save` (write brief to `specs/reviews/PR-<num>-<slug>.md`)
+- `/devkit:pr-review:post` — `--post` (post as single summary comment; confirms first)
+- `/devkit:pr-review:post-review` — `--post-review` (native GitHub review with inline comments)
+- `/devkit:pr-review:since` — `--since=<commit>` (re-review mode for the diff after a specific commit)
+
+Niche flag `--no-jira` intentionally not promoted to a sub-command — power-user flag, not a primary workflow.
+
+#### `commands/address-pr/` — 3 sub-commands
+- `/devkit:address-pr:dry-run` — `--dry-run` (preview classification + proposed actions; no writes)
+- `/devkit:address-pr:ignore-bots` — `--ignore-bots` (skip CodeRabbit / dependabot / danger / etc.)
+- `/devkit:address-pr:auto-resolve` — `--auto-resolve` (mark threads resolved after fixes land without per-thread confirmation)
+
+Reviewer-filter flag (`--reviewer=<login>`) intentionally not promoted — requires a second arg, doesn't fit the simple shortcut shape.
+
+#### `commands/why/` — 2 sub-commands
+- `/devkit:why:thorough` — `--depth=thorough` (full drilldown with PR description + review-thread debate)
+- `/devkit:why:json` — `--json` (machine-readable output)
+
+Default-quick mode is what `/devkit:why <target>` already does — no `quick.md` sub-command needed.
+
+### Pattern summary
+
+```
+commands/cover.md          + commands/cover/        (7 sub-commands)   ← v1.4.5
+commands/pr-review.md      + commands/pr-review/    (5 sub-commands)   ← v1.4.6
+commands/address-pr.md     + commands/address-pr/   (3 sub-commands)   ← v1.4.6
+commands/why.md            + commands/why/          (2 sub-commands)   ← v1.4.6
+commands/trace.md          (picker only — input variants don't fit shortcuts)
+commands/locator-add.md    (picker only — only 1 distinct mode)
+```
+
+All parent `.md` files stay unchanged. Sub-commands are thin delegators (~25 lines each) that pre-select a flag and reference the parent's pipeline.
+
 ## v1.4.5 (2026-05-19)
 
 ### Add `/devkit:cover:*` sub-commands for direct-to-batch invocation
