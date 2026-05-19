@@ -22,13 +22,27 @@ If `$ARGUMENTS` is empty, prompt: `"Target? (e.g. apiClient.ts:188)"`.
 
 ## Execute
 
-Run the standard why pipeline from `commands/why.md` with `depth=thorough` pre-selected. Output adds:
-- PR description excerpt (not just the title)
-- Key review-thread points (≥2 rationale comments)
-- Secondary edits (commits that touched adjacent lines)
-- Confidence labels per source
+Run the canonical pipeline from `commands/why/default.md` (Phase 1 through Phase 4 + quality gates). At Phase 5 (Output), in addition to the standard quick output, append:
 
-For the full pipeline, see `commands/why.md`.
+```
+**PR description excerpt**
+> <first 200 chars of PR body, or "(no body)">
+
+**Key review-thread points**
+- @<reviewer>: "<excerpt up to 100 chars>" — outcome: <addressed / wontfix / discussion only>
+- ...
+
+**Secondary substantive edits** (between originator and last-touched)
+- `<short-sha>` — <author>, <date>: <commit subject>
+- ...
+
+**Special-case notes**
+- <e.g., "this code was reverted in <sha>" or "superseded by PR #<num>" — only if detected>
+```
+
+Also extend Phase 2 (walk): list the 1–2 most recent substantive edits between the originator and the last-touched commit.
+
+Phases 1-4 work + quality gates are unchanged from `default.md`.
 
 ## Guardrails
 

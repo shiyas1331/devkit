@@ -18,9 +18,12 @@ If `$ARGUMENTS` is empty, prompt: `"PR? (URL, number, or branch name)"`.
 
 ## Execute
 
-Run the standard pr-review pipeline from `commands/pr-review.md` with `save=true` pre-selected. Writes the full brief to `specs/reviews/PR-<num>-<slug>.md` in addition to printing it.
+Run the canonical pipeline from `commands/pr-review/default.md` (Phase 1 through Phase 4 + quality gates). At Phase 5 (Output):
 
-For the full pipeline, see `commands/pr-review.md`.
+1. Write the full brief to `specs/reviews/PR-<num>-<short-title-slug>.md` (or `<path>` if `--save=<path>` was given). Create the directory if missing.
+2. Print: file path, TL;DR section verbatim, one-line next-step suggestion.
+
+The Phase 1-4 work is unchanged from `default.md`.
 
 ## Guardrails
 

@@ -20,9 +20,15 @@ If `$ARGUMENTS` is empty, prompt: `"PR? (URL, number, or branch name)"`.
 
 ## Execute
 
-Run the standard pr-review pipeline from `commands/pr-review.md` with `post=true` pre-selected. Generates the full brief, asks confirmation, then posts as a single summary comment.
+Run the canonical pipeline from `commands/pr-review/default.md` (Phase 1 through Phase 4 + quality gates). At Phase 5 (Output):
 
-For the full pipeline, see `commands/pr-review.md`.
+1. Write the full brief to `specs/reviews/PR-<num>-<short-title-slug>.md` (implicit `--save`).
+2. Show first 30 lines of the brief.
+3. Ask: `"Post as comment on PR #<num>? (y/n)"`.
+4. On `y`: `gh pr comment <PR> --body-file <path>`.
+5. Never post without explicit confirmation.
+
+The Phase 1-4 work is unchanged from `default.md`.
 
 ## Guardrails
 

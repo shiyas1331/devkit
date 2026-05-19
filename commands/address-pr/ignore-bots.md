@@ -20,11 +20,11 @@ If `$ARGUMENTS` is empty, prompt: `"PR? (URL, number, or branch name)"`.
 
 ## Execute
 
-Run the standard address-pr pipeline from `commands/address-pr.md` with `ignore_bots=true` pre-selected. Bot-authored comments are filtered out before classification.
+Run the canonical pipeline from `commands/address-pr/default.md`, but at Phase 1 (Fetch comments), apply an additional filter: drop any comment where `user.type === 'Bot'` OR the login matches known patterns (`*-bot`, `coderabbitai`, `dependabot[bot]`, `danger-*`, `github-actions[bot]`).
 
-Bot detection: GitHub `user.type === 'Bot'`, or login matches known patterns (`*-bot`, `coderabbitai`, `dependabot[bot]`, `danger-*`, `github-actions[bot]`).
+Bot threads are NOT replied to or resolved by this mode.
 
-For the full pipeline, see `commands/address-pr.md`.
+Phases 2-7 are unchanged from `default.md`.
 
 ## Guardrails
 

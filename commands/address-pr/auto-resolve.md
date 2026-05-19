@@ -20,9 +20,13 @@ If `$ARGUMENTS` is empty, prompt: `"PR? (URL, number, or branch name)"`.
 
 ## Execute
 
-Run the standard address-pr pipeline from `commands/address-pr.md` with `auto_resolve=true` pre-selected. After each fix lands successfully, the corresponding thread is marked resolved without per-thread confirmation.
+Run the canonical pipeline from `commands/address-pr/default.md`. At Phase 6 (Reply and resolve), skip the per-thread "mark resolved?" prompt — resolve via GraphQL immediately after each fix lands successfully.
 
-For the full pipeline, see `commands/address-pr.md`.
+Do NOT auto-resolve when:
+- The fix is in a different file than the one commented on (unclear correlation — surface to author).
+- The thread is marked `out-of-scope` or `conflict`.
+
+Phases 1-5 and 7 are unchanged from `default.md`.
 
 ## Guardrails
 

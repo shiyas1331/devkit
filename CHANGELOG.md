@@ -1,5 +1,53 @@
 # Changelog
 
+## v1.4.8 (2026-05-19)
+
+### Slim-router refactor extended to `pr-review`, `address-pr`, `why`
+
+Same picker-latency fix v1.4.7 applied to `cover` — now applied to the three other commands that have pickers. Parent `.md` files were 261-364 lines; now ~75-100 lines each.
+
+#### Pattern: canonical pipeline lives in `<command>/default.md`
+
+For these commands, every sub-command runs the **same pipeline** — they differ only at the output stage. So instead of inlining the full pipeline into each sub-command (cover's pattern), the pipeline lives once in `<command>/default.md`. Other sub-commands reference it and override only the output phase. Avoids the ~2400 lines of duplication that strict self-containment would have produced.
+
+#### `commands/pr-review.md` (364 → 100 lines)
+
+- Slimmed to router only
+- New `pr-review/default.md` — canonical Phase 1-6 pipeline
+- New `pr-review/help.md` — verbose flag reference dispatcher
+- Existing `quick.md`, `save.md`, `post.md`, `post-review.md`, `since.md` updated to reference `default.md` instead of parent
+
+#### `commands/address-pr.md` (261 → 80 lines)
+
+- Slimmed to router only
+- New `address-pr/default.md` — canonical Phase 1-8 pipeline (walk-through mode)
+- New `address-pr/help.md`
+- Existing `dry-run.md`, `ignore-bots.md`, `auto-resolve.md` updated to reference `default.md`
+
+#### `commands/why.md` (325 → 95 lines)
+
+- Slimmed to router only
+- New `why/default.md` — canonical Phase 1-6 pipeline (quick mode)
+- New `why/help.md`
+- Existing `thorough.md`, `json.md` updated to reference `default.md`
+
+#### Speed-up
+
+Picker now loads ~75-100 lines per command before firing `AskUserQuestion`, vs 250-364 before. 3-4x faster for all three commands.
+
+#### Behavior preserved
+
+- All flag-based invocations unchanged
+- All sub-command shortcuts still work
+- No external API changed
+
+#### Skipped (intentionally)
+
+- `trace.md` (403 lines) — modes are input variants, not actions per v1.4.6 design decision
+- `locator-add.md` (210 lines) — only 1 distinct mode, no sub-command pattern applies
+
+---
+
 ## v1.4.7 (2026-05-19)
 
 ### `/devkit:cover` — slim router refactor

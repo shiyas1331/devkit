@@ -20,9 +20,15 @@ If `$ARGUMENTS` is empty, prompt: `"PR? (URL, number, or branch name)"`.
 
 ## Execute
 
-Run the standard address-pr pipeline from `commands/address-pr.md` with `dry_run=true` pre-selected. Fetches and classifies comments, drafts proposed actions, but **does NOT apply code changes, commit, post replies, or resolve threads**.
+Run the canonical pipeline from `commands/address-pr/default.md` through Phase 3 (Plan). **Halt after the plan is displayed.** Do NOT proceed to Phase 4 (Apply), Phase 5 (Commit), Phase 6 (Reply), or Phase 7 (Re-request review).
 
-For the full pipeline, see `commands/address-pr.md`.
+The plan output shows:
+- What would be fixed (code changes)
+- What would be replied to (questions / discussions)
+- What would be acknowledged (nits / out-of-scope)
+- Stale comments + conflicts surfaced for human decision
+
+Phases 1-3 are unchanged from `default.md`.
 
 ## Guardrails
 

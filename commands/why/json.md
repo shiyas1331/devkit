@@ -22,26 +22,27 @@ If `$ARGUMENTS` is empty, prompt: `"Target? (e.g. apiClient.ts:188)"`.
 
 ## Execute
 
-Run the standard why pipeline from `commands/why.md` with `output=json` pre-selected. Emit ONE JSON object (no prose, no markdown). Schema:
+Run the canonical pipeline from `commands/why/default.md` (Phase 1 through Phase 4 + quality gates). At Phase 5 (Output), emit ONE JSON object only — no prose, no markdown, no code fences:
 
 ```json
 {
-  "target": "<file:line or file or file:start-end>",
-  "originating": {
-    "commit": "<sha>",
-    "author": "<name>",
-    "date": "<iso>",
-    "summary": "<commit subject>"
+  "file": "<path>",
+  "line": <number or null>,
+  "walk": {
+    "commits_walked": <N>,
+    "last_touched": { "sha": "<sha>", "subject": "<subject>", "classification": "trivial|substantive" },
+    "originator": { "sha": "<sha>", "author": "<name>", "date": "<ISO>", "subject": "<subject>" }
   },
-  "pr": { "number": <int|null>, "title": "...", "url": "..." },
-  "ticket": { "id": "...", "url": "...", "title": "..." },
+  "pr": { "number": <N>, "title": "<title>", "url": "<url>", "merge_method": "squash|merge|rebase" } | null,
+  "ticket": { "key": "<key>", "title": "<title>", "url": "<url>" } | null,
+  "review_comments": [...],
   "confidence": "high|medium|low|none",
-  "walk_depth": <int>,
-  "skipped_commits": [{ "sha": "...", "reason": "typo|format|lint|rename|bot" }]
+  "special_cases": ["reverted|superseded|moved|renamed|squashed|direct-push|generated-file"],
+  "warnings": ["<e.g., working-tree drift, missing ATLASSIAN_TOKEN>"]
 }
 ```
 
-For the full pipeline and schema details, see `commands/why.md`.
+Phases 1-4 work + quality gates are unchanged from `default.md`.
 
 ## Guardrails
 

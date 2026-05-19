@@ -22,9 +22,16 @@ If `$ARGUMENTS` is empty or has only one token, prompt for the missing piece.
 
 ## Execute
 
-Run the standard pr-review pipeline from `commands/pr-review.md` with `since=<commit>` pre-selected. The diff scope narrows to commits after `<commit-sha>` on the PR head.
+Run the canonical pipeline from `commands/pr-review/default.md`, but at Phase 1 (Fetch context), narrow the diff scope:
+- Use `git diff <commit-sha>...HEAD` instead of `gh pr diff <PR>`.
+- The PR metadata fetch is unchanged.
+- Per-file history (top 10) is filtered to commits after `<commit-sha>`.
 
-For the full pipeline, see `commands/pr-review.md`.
+At Phase 5 (Output), append a delta section noting:
+- Which commits are NEW since `<commit-sha>`.
+- Whether prior brief at `specs/reviews/PR-<num>-*.md` exists. If yes, surface the diff between old and new findings.
+
+The rest of the Phase 1-4 work is unchanged from `default.md`.
 
 ## Guardrails
 

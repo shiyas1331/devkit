@@ -18,9 +18,9 @@ If `$ARGUMENTS` is empty, prompt: `"PR? (URL, number, or branch name)"`.
 
 ## Execute
 
-Run the standard pr-review pipeline from `commands/pr-review.md` with `depth=quick` pre-selected. Output: TL;DR + file-triage table only (no decisions, conventions, or risks sections).
+Run the canonical pipeline from `commands/pr-review/default.md` (Phase 1 through Phase 4 + quality gates). At Phase 5 (Output), override the full brief: print only the **TL;DR** + **Triage** table. Skip decisions / conventions / risks sections.
 
-For the full pipeline, see `commands/pr-review.md`.
+The Phase 1-4 work is unchanged from `default.md` — only the output stage is truncated.
 
 ## Guardrails
 
