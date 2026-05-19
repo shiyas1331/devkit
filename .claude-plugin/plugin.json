@@ -1,6 +1,6 @@
 {
   "name": "devkit",
-  "version": "1.4.8",
+  "version": "1.4.9",
   "description": "A Claude Code plugin with debugging, code analysis, and developer productivity commands.",
   "author": {
     "name": "Mohamed Shiyas"

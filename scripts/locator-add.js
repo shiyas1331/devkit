@@ -130,19 +130,45 @@ function findComponentCandidates(j, root) {
   const candidates = [];
 
   // Variable declarations: `export const Foo = (props) => <View />`
+  // Also handles HoC wrappers:
+  //   `export const Foo = memo((props) => <View />)`
+  //   `export const Foo = React.memo((props) => <View />)`
+  //   `export const Foo = forwardRef((props, ref) => <View />)`
+  //   `export const Foo = memo(forwardRef((props, ref) => <View />))` (compound)
   root
     .find(j.VariableDeclaration)
     .filter((p) => isExported(p))
     .forEach((path) => {
       for (const decl of path.value.declarations) {
+        if (!decl.init) continue;
+
+        let fnNode = null;
+        let wrapperKinds = [];
+
+        // Direct arrow / function expression.
         if (
-          decl.init &&
-          (decl.init.type === 'ArrowFunctionExpression' ||
-            decl.init.type === 'FunctionExpression')
+          decl.init.type === 'ArrowFunctionExpression' ||
+          decl.init.type === 'FunctionExpression'
         ) {
-          const candidate = analyzeComponent(j, decl.id, decl.init);
+          fnNode = decl.init;
+        }
+        // CallExpression — try unwrapping memo / forwardRef HoCs.
+        let propsTypeFromGeneric = null;
+        if (decl.init.type === 'CallExpression') {
+          const unwrapped = unwrapHocCalls(decl.init);
+          if (unwrapped) {
+            fnNode = unwrapped.fnNode;
+            wrapperKinds = unwrapped.wrapperKinds;
+            propsTypeFromGeneric = unwrapped.propsTypeFromGeneric;
+          }
+        }
+
+        if (fnNode) {
+          const candidate = analyzeComponent(j, decl.id, fnNode);
           if (candidate) {
             candidate.declarationPath = path;
+            candidate.wrapperKinds = wrapperKinds;
+            candidate.propsTypeFromGeneric = propsTypeFromGeneric;
             candidates.push(candidate);
           }
         }
@@ -157,11 +183,78 @@ function findComponentCandidates(j, root) {
       const candidate = analyzeComponent(j, path.value.id, path.value);
       if (candidate) {
         candidate.declarationPath = path;
+        candidate.wrapperKinds = [];
         candidates.push(candidate);
       }
     });
 
   return candidates;
+}
+
+/**
+ * Unwrap a chain of HoC calls (memo, React.memo, forwardRef, React.forwardRef)
+ * to find the innermost function expression.
+ *
+ * Returns { fnNode, wrapperKinds, propsTypeFromGeneric } where:
+ *   - fnNode: the innermost arrow/function expression
+ *   - wrapperKinds: outer-to-inner list of HoCs unwrapped
+ *   - propsTypeFromGeneric: the props type extracted from forwardRef's generic
+ *     args if present (forwardRef<RefType, PropsType>). null otherwise. This is
+ *     used as a fallback when the inner function's first param has no type
+ *     annotation but the props type was supplied via generics.
+ *
+ * Returns null if the call expression isn't a recognized HoC chain or if the
+ * innermost argument isn't a function.
+ */
+function unwrapHocCalls(callNode) {
+  const RECOGNIZED_HOCS = new Set(['memo', 'forwardRef', 'observer']);
+  let current = callNode;
+  const wrapperKinds = [];
+  let propsTypeFromGeneric = null;
+
+  while (current && current.type === 'CallExpression') {
+    const calleeName = getCalleeName(current.callee);
+    if (!calleeName || !RECOGNIZED_HOCS.has(calleeName)) return null;
+    if (!current.arguments || current.arguments.length === 0) return null;
+    wrapperKinds.push(calleeName);
+
+    // Capture props type from forwardRef's generic args: forwardRef<RefType, PropsType>
+    // The second type argument is the props type. We only capture the outermost
+    // forwardRef in a compound chain (closest to the consumer).
+    if (
+      calleeName === 'forwardRef' &&
+      propsTypeFromGeneric === null &&
+      current.typeParameters &&
+      current.typeParameters.params &&
+      current.typeParameters.params.length >= 2
+    ) {
+      propsTypeFromGeneric = current.typeParameters.params[1];
+    }
+
+    current = current.arguments[0];
+  }
+
+  if (
+    current &&
+    (current.type === 'ArrowFunctionExpression' || current.type === 'FunctionExpression')
+  ) {
+    return { fnNode: current, wrapperKinds, propsTypeFromGeneric };
+  }
+  return null;
+}
+
+/** Get the name of a callee — handles `foo()` and `React.foo()`. */
+function getCalleeName(callee) {
+  if (!callee) return null;
+  if (callee.type === 'Identifier') return callee.name;
+  if (
+    callee.type === 'MemberExpression' &&
+    callee.property &&
+    callee.property.type === 'Identifier'
+  ) {
+    return callee.property.name;
+  }
+  return null;
 }
 
 function isExported(path) {
@@ -274,10 +367,19 @@ function instrumentComponent(j, root, candidate, opts, filePath) {
   // referencing a name that isn't declared in this file, we can't safely add
   // fields — modifying the destructure would produce a TS error. Skip the
   // component entirely in that case.
-  const typeResult = ensurePropsTypeFields(j, root, candidate);
+  const typeResult = ensurePropsTypeFields(j, root, candidate, filePath);
   if (typeResult.status === 'cross-file') {
     process.stderr.write(
       `[locator-add] Skipping ${candidate.name}: props type defined in a different file. Add testID?: string and accessibilityLabel?: string to the type manually, then re-run.\n`,
+    );
+    return result;
+  }
+  // Bail for unsupported type shapes (intersection types, generics, etc.).
+  // Without this guard the transform would update destructure + JSX without
+  // updating the type — causing a TypeScript compile error in the consumer.
+  if (typeResult.status === 'unsupported') {
+    process.stderr.write(
+      `[locator-add] Skipping ${candidate.name}: props type uses an unsupported shape (intersection, generic, or other). Add testID?: string and accessibilityLabel?: string to the type manually, then re-run.\n`,
     );
     return result;
   }
@@ -306,31 +408,45 @@ function instrumentComponent(j, root, candidate, opts, filePath) {
  * Searches for:
  *   - TS type annotation on the parameter (interface or type alias referenced by name)
  *   - Inline type annotation on the parameter
+ *   - Sibling *Types.ts / *Type.ts file (cross-file patching, v2)
  * If neither is found (e.g., plain JS), we skip — destructure handles it.
- */
-/**
- * Ensure the props type has testID/accessibilityLabel fields.
+ *
  * Returns { status, modified }:
  *   status:
- *     'in-file'    — type was found in this file (or there's no type annotation)
- *     'cross-file' — type reference points to a name not declared in this file
- *     'unsupported'— intersection / generic / other shape we don't handle in v1
+ *     'in-file'         — type was found in this file (or there's no type annotation)
+ *     'sibling-patched' — type was found in a sibling *Types.ts file and patched
+ *     'cross-file'      — type reference points to a name not findable anywhere
+ *     'unsupported'     — intersection / generic / other shape we don't handle
  *   modified: true if any field was actually added; false if nothing changed.
  */
-function ensurePropsTypeFields(j, root, candidate) {
+function ensurePropsTypeFields(j, root, candidate, filePath) {
   const param = candidate.fnNode.params[0];
   if (!param) return { status: 'in-file', modified: false };
 
-  const typeAnnotation = param.typeAnnotation && param.typeAnnotation.typeAnnotation;
+  // Effective type annotation — prefer the param's own annotation, fall back
+  // to the props type extracted from a forwardRef generic (forwardRef<R, P>).
+  // Without this fallback, forwardRef components that encode props via generics
+  // (instead of via param annotation) would skip the type update — causing TS
+  // errors because the destructure references testID but the type doesn't have it.
+  let typeAnnotation = param.typeAnnotation && param.typeAnnotation.typeAnnotation;
+  if (!typeAnnotation && candidate.propsTypeFromGeneric) {
+    typeAnnotation = candidate.propsTypeFromGeneric;
+  }
   if (!typeAnnotation) return { status: 'in-file', modified: false };
 
   // Case A: type reference — `: ButtonProps`
   if (typeAnnotation.type === 'TSTypeReference' && typeAnnotation.typeName.type === 'Identifier') {
     const typeName = typeAnnotation.typeName.name;
     const r = ensureFieldsInDeclaredType(j, root, typeName);
-    return r.found
-      ? { status: 'in-file', modified: r.modified }
-      : { status: 'cross-file', modified: false };
+    if (r.found) {
+      return { status: 'in-file', modified: r.modified };
+    }
+    // Not in this file — try sibling *Types.ts / *Type.ts.
+    const sibResult = trySiblingTypesFile(j, typeName, filePath);
+    if (sibResult.found) {
+      return { status: 'sibling-patched', modified: sibResult.modified };
+    }
+    return { status: 'cross-file', modified: false };
   }
 
   // Case B: inline type literal — `: { foo: string }`
@@ -339,8 +455,90 @@ function ensurePropsTypeFields(j, root, candidate) {
     return { status: 'in-file', modified };
   }
 
-  // Other shapes (intersection, generic) — skip in v1.
+  // Other shapes (intersection, generic) — skip.
   return { status: 'unsupported', modified: false };
+}
+
+/**
+ * Search the file's directory for a sibling *Types.ts / *Type.ts file containing
+ * the named interface/type. If found, patch it (add testID + accessibilityLabel).
+ * Writes the sibling back to disk immediately.
+ *
+ * Returns { found, modified }:
+ *   found:    true if a sibling file with the matching interface was located
+ *   modified: true if fields were actually added (false if already present)
+ *
+ * NOTE: writes bypass jscodeshift's --dry flag. To support dry-run for sibling
+ * files, set env var DEVKIT_LOCATOR_ADD_DRY=1.
+ */
+function trySiblingTypesFile(j, typeName, filePath) {
+  if (!filePath) return { found: false, modified: false };
+
+  const abs = path.resolve(filePath);
+  const dir = path.dirname(abs);
+  const ext = path.extname(abs);
+  const baseName = path.basename(abs, ext); // e.g., "Button" from "Button.tsx"
+
+  // Candidate sibling file names, in priority order.
+  const candidates = [
+    `${baseName}Types.ts`,
+    `${baseName}Types.tsx`,
+    `${baseName}Type.ts`,
+    `${baseName}Type.tsx`,
+    // Some repos use a flat `types.ts` in the same dir.
+    'types.ts',
+    'types.tsx',
+  ];
+
+  for (const fname of candidates) {
+    const fpath = path.join(dir, fname);
+    if (!fs.existsSync(fpath)) continue;
+
+    let content;
+    try {
+      content = fs.readFileSync(fpath, 'utf8');
+    } catch (e) {
+      continue;
+    }
+
+    let siblingRoot;
+    try {
+      siblingRoot = j(content);
+    } catch (e) {
+      // Not parseable — skip.
+      continue;
+    }
+
+    const r = ensureFieldsInDeclaredType(j, siblingRoot, typeName);
+    if (!r.found) continue;
+
+    if (r.modified) {
+      const isDry =
+        process.env.DEVKIT_LOCATOR_ADD_DRY === '1' ||
+        process.env.DEVKIT_LOCATOR_ADD_DRY === 'true';
+      if (!isDry) {
+        try {
+          fs.writeFileSync(fpath, siblingRoot.toSource({ quote: 'single' }), 'utf8');
+          process.stderr.write(
+            `[locator-add] Patched sibling type file: ${fpath}\n`,
+          );
+        } catch (e) {
+          process.stderr.write(
+            `[locator-add] Failed to write sibling type file ${fpath}: ${e.message}\n`,
+          );
+          return { found: true, modified: false };
+        }
+      } else {
+        process.stderr.write(
+          `[locator-add] (dry-run) Would patch sibling type file: ${fpath}\n`,
+        );
+      }
+    }
+
+    return { found: true, modified: r.modified };
+  }
+
+  return { found: false, modified: false };
 }
 
 /** Returns { found, modified } where found = type declaration was located in this file. */

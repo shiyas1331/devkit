@@ -1,5 +1,103 @@
 # Changelog
 
+## v1.4.9 (2026-05-19)
+
+### `/devkit:locator-add` — four fixes that lift auto-instrument rate
+
+Based on deep-dive analysis of `/devkit:locator-add` against omega/self-serve
+(86 components, 33 auto-instrumented in PR #142 = 43% rate) and provider-app
+(399 component files, never auto-instrumented).
+
+#### Fix 1 — Intersection-type bug (correctness)
+
+**Problem**: when a component's props type was an intersection (`Props & Omit<X>`),
+the transform updated the destructure + JSX but skipped the type update —
+producing TypeScript compile errors in the consumer project.
+
+**Fix**: bail cleanly when type annotation is `TSIntersectionType` (or any
+unsupported shape). Stderr message tells the dev to add fields manually.
+
+**Impact**: prevents broken builds. provider-app has 13 components at risk.
+
+#### Fix 2 — memo() and React.memo() unwrap
+
+**Problem**: `findComponentCandidates` only recognized direct arrow/function
+expressions. Components wrapped in `memo(fn)` or `React.memo(fn)` were silently
+skipped — never even surfaced as candidates.
+
+**Fix**: new `unwrapHocCalls()` helper that recognizes `memo`, `React.memo`,
+`forwardRef`, `React.forwardRef`, and `observer`. Recursively unwraps to find
+the inner function. Handles compound chains like `memo(forwardRef(fn))`.
+
+**Impact**: unblocks ~38 components in provider-app (heavy `memo` user) and
+the Loader component in omega/self-serve.
+
+#### Fix 3 — forwardRef() unwrap (with generic-arg type support)
+
+**Problem**: `forwardRef(fn)` was skipped entirely (same root cause as Fix 2).
+Even worse, the typical pattern `forwardRef<RefType, PropsType>(fn)` encodes
+the props type via generics, not via the inner function's param annotation —
+so a naive unwrap would produce code that destructures testID without
+updating the type.
+
+**Fix**: shared HoC unwrap (with Fix 2). Plus capture the second generic
+type argument of forwardRef calls and use it as a fallback when the inner
+function's first param has no explicit type annotation.
+
+**Impact**: unblocks Input.tsx (highest-traffic component in omega) plus 1
+forwardRef file in provider-app. Handles BOTH `forwardRef<R, P>((props, ref) => ...)`
+and `forwardRef((props: P, ref) => ...)` correctly.
+
+#### Fix 4 — Sibling Types.ts patching (multi-file mutation)
+
+**Problem**: many components in self-serve and provider-app put their props
+type in a separate file (Button.tsx + ButtonTypes.ts). The transform only
+looked in the current file and skipped when the type wasn't found.
+
+**Fix**: new `trySiblingTypesFile()` helper. When the props type reference
+isn't found in the current file, search the same directory for sibling type
+files in priority order:
+  - `<ComponentName>Types.ts` / `.tsx`
+  - `<ComponentName>Type.ts` / `.tsx`
+  - `types.ts` / `.tsx`
+
+If a sibling file contains the named interface/type alias, patch it directly
+(add `testID?: string` and `accessibilityLabel?: string`). Then continue with
+normal current-file instrumentation. Reports the patched sibling via stderr.
+
+**Impact**: unblocks ~46 components across both repos. Most-used components
+including Button, Radio, Tags, TagWithIcon, ListWithActions in self-serve.
+
+**Caveat — dry-run support**: sibling-file writes happen via direct `fs`
+calls, which bypass jscodeshift's `--dry` flag. To respect dry-run for
+sibling files, set env var `DEVKIT_LOCATOR_ADD_DRY=1`. The command markdown
+should be updated to forward this when `--dry-run` is requested.
+
+### Verification
+
+All 4 fixes verified end-to-end on synthetic fixtures covering:
+- Cross-file type (sibling Types.ts patching)
+- memo() wrapper
+- forwardRef() with generic-arg props
+- forwardRef() with param-annotation props
+- Intersection type (correctly bails)
+
+Result: **4 ok / 3 skipped / 0 errors** on the test suite. Expected omega
+rate after v1.4.9: ~70%. provider-app: ~50-60% (first-ever run).
+
+### Not yet shipped
+
+- Compound `memo(forwardRef(...))` test coverage — should work via the chain
+  unwrap but not directly verified on a fixture yet
+- App-mode scoping (auto-skip screens/containers) — deferred to a future
+  release
+- Indirect export (`const X = ...; export { X }`) — deferred
+
+Expected workflow now: run on omega/self-serve, then on provider-app, iterate
+based on actual results.
+
+---
+
 ## v1.4.8 (2026-05-19)
 
 ### Slim-router refactor extended to `pr-review`, `address-pr`, `why`
