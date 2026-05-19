@@ -4,9 +4,9 @@ argument-hint: <package-path>
 model: opus
 ---
 
-# /devkit:cover:setup — foundation scaffolding shortcut
+# /devkit:cover:setup — foundation scaffolding
 
-Equivalent to `/devkit:cover <path> --setup`. Skips the interactive picker for power users who already know they want to scaffold a fresh package.
+Equivalent to `/devkit:cover <path> --setup`. Skips the picker.
 
 ## Input
 
@@ -14,27 +14,116 @@ Equivalent to `/devkit:cover <path> --setup`. Skips the interactive picker for p
 $ARGUMENTS
 ```
 
-If `$ARGUMENTS` is empty, prompt the user once: `"Package path? (e.g. packages/establishment)"`.
+If `$ARGUMENTS` is empty, prompt: `"Package path? (e.g. packages/establishment)"`.
 
-Otherwise, treat `$ARGUMENTS` as the package path.
+## Context loading
 
-## Execute
+Read available context BEFORE doing anything:
 
-Run the full **Mode A (`--setup`)** pipeline from `commands/cover.md`:
+1. `CLAUDE.md` in the repo root (project conventions)
+2. `.claude/codebase/*.md` (if exists)
 
-1. Detect platform via `platforms/<name>/detect.md` rules.
-2. Detect existing foundation (jest config, mocks, setup.ts).
-3. Build `moduleNameMapper` from `babel.config.js` aliases.
-4. Generate scaffold files from `platforms/<PLATFORM>/scaffolds/` (skip existing).
-5. Copy native module mocks from `platforms/<PLATFORM>/mocks/` to `<package>/__mocks__/`.
-6. Modify `package.json` (devDeps + scripts), `tsconfig.json` (test aliases), `babel.config.js` (test aliases).
-7. Run smoke test: `npm test -- --passWithNoTests` must exit 0.
-8. Report files generated + next-step suggestion.
+## Phase 0 — Detect platform
 
-For the full step-by-step, see `commands/cover.md` → "Mode A — `--setup`".
+1. List `<plugin-root>/platforms/` to enumerate available platforms.
+2. For each, read `<plugin-root>/platforms/<name>/detect.md` and apply the rules.
+3. Pick the first matching platform. Set `PLATFORM`, `PLATFORM_ROOT`, `HAS_JEST_CONFIG`, `HAS_MOCKS_DIR`.
 
-## Guardrails (same as parent)
+If no platform matches, error and STOP.
+
+## Phase 1 — Validate target
+
+Target must be a directory with `package.json`. If not, error and STOP.
+
+## Phase 2 — Detect existing foundation
+
+- `HAS_JEST_CONFIG=true` if `<PLATFORM_ROOT>/jest.config.{js,ts}` exists with `preset: 'react-native'`.
+- `HAS_MOCKS_DIR=true` if `<PLATFORM_ROOT>/__mocks__/` exists.
+- Setup files present at `<PLATFORM_ROOT>/src/__tests__/setup.ts`, `utils/createTestStore.ts`, etc.
+
+## Phase 3 — Build moduleNameMapper from babel.config.js
+
+1. Read `<PLATFORM_ROOT>/babel.config.js`.
+2. Extract the `alias` block under `babel-plugin-module-resolver`.
+3. For each alias `@foo/*: 'path/to/foo/*'`, emit a Jest mapper line:
+   ```
+   '^@foo/(.*)$': '<rootDir>/path/to/foo/$1',
+   ```
+4. Adjust `<rootDir>` for paths that go above the package root.
+
+## Phase 4 — Generate files
+
+Skip any that already exist; warn the user instead of clobbering.
+
+| File | From template | Substitutions |
+|---|---|---|
+| `jest.config.js` | `scaffolds/jest.config.template.js` | `{{ moduleNameMapper }}` |
+| `src/__tests__/setup.ts` | `scaffolds/setup.template.ts` | `{{ apiFetchAlias }}`, `{{ storeIndexAlias }}`, `{{ providerUtilsAlias }}`, `{{ nativeNavigatorName }}` |
+| `src/__tests__/utils/createTestStore.ts` | `scaffolds/createTestStore.template.ts` | (none) |
+| `src/__tests__/utils/renderWithProviders.tsx` | `scaffolds/renderWithProviders.template.tsx` | `{{ rootReducerImport }}`, `{{ rootStateImport }}` |
+| `src/__tests__/utils/navigationMock.ts` | `scaffolds/navigationMock.template.ts` | (none) |
+| `src/__tests__/utils/index.ts` | barrel export | derived |
+| `src/__tests__/fixtures/.gitkeep` | empty | (none) |
+
+For aliases, infer from project conventions or ask the user once:
+- `{{ apiFetchAlias }}` — grep for `from.*fetch` in `src/api/`; default `'@api/fetch'`.
+- `{{ storeIndexAlias }}` — grep for the package's store index; default `'@store/index'`.
+- `{{ providerUtilsAlias }}` — default `'@provider-utils/ErrorUtil'`; ask if not found.
+- `{{ nativeNavigatorName }}` — grep `NativeModules.\w+`; default `'RNNativeNavigator'`.
+
+## Phase 5 — Copy native module mocks
+
+Copy from `<plugin-root>/platforms/<PLATFORM>/mocks/` to `<PLATFORM_ROOT>/__mocks__/`:
+
+- `reanimated.mock.js` → `react-native-reanimated.js`
+- `safeAreaContext.mock.tsx` → `react-native-safe-area-context.tsx`
+- `selfServe.mock.tsx` → `@practo/self-serve.tsx`
+- `fastImage.mock.tsx` → `react-native-fast-image.tsx`
+
+## Phase 6 — Modify config files
+
+**`package.json`:**
+- Add devDeps if missing: `@testing-library/react-native`, `@testing-library/jest-native`.
+- Add scripts if missing: `test:watch`, `test:coverage`.
+
+**`tsconfig.json`:**
+- Add `@test-utils/*` and `@fixtures/*` to `compilerOptions.paths`.
+
+**`babel.config.js`:**
+- Add the same two aliases to the `babel-plugin-module-resolver` alias block.
+
+## Phase 7 — Smoke test
+
+```bash
+cd <PLATFORM_ROOT> && npm test -- --passWithNoTests 2>&1
+```
+
+Must exit 0. If it fails, report the error and STOP (don't write more files — let the user fix the env).
+
+## Phase 8 — Report
+
+```
+✅ Setup complete for <PLATFORM_ROOT>
+
+Files generated:
+  • jest.config.js
+  • src/__tests__/setup.ts
+  • src/__tests__/utils/{createTestStore,renderWithProviders,navigationMock,index}.ts
+  • __mocks__/{react-native-reanimated,react-native-safe-area-context,@practo/self-serve,react-native-fast-image}.{js,tsx}
+
+Files modified:
+  • package.json (devDeps + scripts)
+  • tsconfig.json (test aliases)
+  • babel.config.js (test aliases)
+
+Smoke test passed: `npm test --passWithNoTests` → exit 0
+
+Next: run `/devkit:cover <PLATFORM_ROOT>` to discover untested code.
+```
+
+## Guardrails
 
 - DO NOT commit
 - DO NOT modify production source files
-- DO NOT skip the smoke test
+- DO NOT skip the smoke test — if `npm test --passWithNoTests` fails, stop and report
+- Idempotent: re-running won't clobber existing files

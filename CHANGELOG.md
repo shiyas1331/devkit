@@ -1,5 +1,43 @@
 # Changelog
 
+## v1.4.7 (2026-05-19)
+
+### `/devkit:cover` — slim router refactor
+
+Picker latency complaint: `/devkit:cover` (empty input) was loading the entire 547-line `cover.md` before rendering the `AskUserQuestion` picker. Now it loads ~100 lines.
+
+#### What changed in `commands/cover.md`
+
+- **Stripped all mode bodies** (Modes A-E, latent-bugs prompt, persistence, hands-off). These were duplicated across `cover/<name>.md` sub-commands anyway.
+- **Kept only**: front-matter, picker (front door A), routing table, global guardrails, references.
+- **Result**: 547 → ~110 lines. ~5x less context to ingest before the picker fires.
+
+#### Three new sub-commands
+
+Previously these modes lived ONLY in `cover.md` and had no sub-command twin. Now they're self-contained:
+
+- `/devkit:cover:discover` — bare directory path (was Mode B inline)
+- `/devkit:cover:file` — bare `.ts`/`.tsx` file path (was Mode C inline)
+- `/devkit:cover:help` — `--help` / `-h` / `?` token (was front door B inline)
+
+#### Existing sub-commands updated
+
+The 7 existing sub-commands (`setup`, `slices`, `thunks`, `hooks`, `listeners`, `containers`, `report`) previously pointed at `cover.md` → `Mode X` for the pipeline body. Those references would have dangled after slimming. Each is now **fully self-contained** — its mode body, the latent-bugs prompt, persistence rules, and hands-off block are all inlined.
+
+#### Behavior preserved
+
+- `/devkit:cover` (empty) — picker fires (faster)
+- `/devkit:cover <path>` — discover mode (routes to `cover:discover`)
+- `/devkit:cover <file>` — single-file mode (routes to `cover:file`)
+- `/devkit:cover <path> --setup` — routes to `cover:setup`
+- `/devkit:cover <path> --batch <name>` — routes to `cover:<name>`
+- `/devkit:cover <path> --report` — routes to `cover:report`
+- `/devkit:cover --help` — routes to `cover:help`
+
+No external API changed. Sub-commands continue to work standalone.
+
+---
+
 ## v1.4.6 (2026-05-19)
 
 ### Extend sub-command pattern to `pr-review`, `address-pr`, and `why`

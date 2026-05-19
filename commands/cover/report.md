@@ -16,18 +16,38 @@ $ARGUMENTS
 
 If `$ARGUMENTS` is empty, prompt: `"Package path? (e.g. packages/establishment)"`.
 
-## Execute
+## Phase 0 — Detect platform
 
-Run **Mode E (`--report`)** from `commands/cover.md`:
+1. List `<plugin-root>/platforms/`.
+2. Read each `detect.md`. Set `PLATFORM`, `PLATFORM_ROOT`. Error + STOP if no match.
 
-1. Detect platform.
-2. Run `npm test -- --coverage` (only if `.coverage-baseline.json` exists or user explicitly opts in).
-3. Compare against baseline.
-4. Read `.claude/memory/<package>-latent-bugs.md` (or `latent-bugs.md` fallback) for accumulated findings.
-5. Print coverage delta + latent bug count + next suggested work.
+## Phase 1 — Coverage delta
 
-For the full pipeline, see `commands/cover.md` → "Mode E".
+1. Run `npm test -- --coverage` (only if `.coverage-baseline.json` exists in `<PLATFORM_ROOT>` OR the user explicitly opts in).
+2. Compare against the baseline.
+
+## Phase 2 — Latent bugs lookup
+
+Read `.claude/memory/<package>-latent-bugs.md` (or `latent-bugs.md` fallback) for accumulated findings from prior runs.
+
+## Phase 3 — Print
+
+```
+📊 Coverage delta — <package>
+
+Baseline: {{ pct }}%   →   Current: {{ pct }}%   (Δ +{{ pct }}pp)
+
+Tests in this package: {{ N }} suites, {{ N }} tests
+
+Latent bugs flagged so far ({{ count }}):
+  • <file:line> — <description>
+
+Next suggested work:
+  • {{ N }} files remain untested in <classification>
+```
 
 ## Guardrails
 
 - Read-only. Never modifies files.
+- DO NOT spawn `test-engineer` — this mode only reports.
+- DO NOT commit.
