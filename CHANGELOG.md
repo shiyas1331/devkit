@@ -1,5 +1,39 @@
 # Changelog
 
+## v1.4.5 (2026-05-19)
+
+### Add `/devkit:cover:*` sub-commands for direct-to-batch invocation
+
+Adds 7 nested slash commands so modes are visible in the autocomplete dropdown *before* pressing Enter — instead of being hidden behind the picker.
+
+Files (each is a thin shortcut delegating to `commands/cover.md` Mode A / D / E):
+- `commands/cover/setup.md` → `/devkit:cover:setup` — Mode A (foundation scaffold)
+- `commands/cover/slices.md` → `/devkit:cover:slices` — Mode D batch=slices
+- `commands/cover/thunks.md` → `/devkit:cover:thunks` — Mode D batch=thunks
+- `commands/cover/hooks.md` → `/devkit:cover:hooks` — Mode D batch=hooks (all 3 sub-classifications)
+- `commands/cover/listeners.md` → `/devkit:cover:listeners` — Mode D batch=listeners (with recorder-middleware reminder)
+- `commands/cover/containers.md` → `/devkit:cover:containers` — Mode D batch=containers (LOW-confidence warning included)
+- `commands/cover/report.md` → `/devkit:cover:report` — Mode E (coverage delta + latent bug summary)
+
+**The original `/devkit:cover` (picker) stays unchanged.** Sub-commands are additive — power users skip the picker, new users still get it. Both paths exist forever.
+
+### Why nested folders
+
+Subdirectory becomes part of the command name via the `:` separator. `commands/cover/slices.md` registers as `/devkit:cover:slices` — visually consistent with the existing `devkit:` namespace pattern. Autocomplete sorts them together because of the shared prefix:
+
+```
+/devkit:cover            (the picker, unchanged)
+/devkit:cover:setup
+/devkit:cover:slices
+/devkit:cover:thunks
+/devkit:cover:hooks
+/devkit:cover:listeners
+/devkit:cover:containers
+/devkit:cover:report
+```
+
+Cleaner than flat `cover-slices.md` because top-level `commands/` stays uncluttered.
+
 ## v1.4.4 (2026-05-18)
 
 ### Fix: listener template uses recorder middleware (not `jest.spyOn`)
