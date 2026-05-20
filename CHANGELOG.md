@@ -1,5 +1,112 @@
 # Changelog
 
+## v1.5.2 (2026-05-20)
+
+### `/devkit:pr-review:post-review` — re-run handling + confidence cue
+
+Addresses two problems observed in v1.5.1:
+  1. Re-running on the same PR posted duplicate comments (no prior-review
+     awareness)
+  2. Type-2 hallucinated findings (agent invents issues that aren't real)
+     had no defense beyond the prompt's "skip if uncertain" rule
+
+#### Re-run handling — three coordinated changes
+
+```
+Phase A.5 — Prior-review detection
+  Before posting, check for prior comments tagged 🤖 [devkit:pr-review].
+  If found, show a choice via AskUserQuestion:
+    (a) Delta   — review only what's new since my last review
+    (b) Force   — re-review the entire PR (agent still dedups against
+                  prior findings)
+    (c) Cancel  — bail out cleanly
+  
+  With --bulk-confirm, defaults to "delta" mode (safer than silently
+  posting duplicates).
+
+Phase B.5 — Smart delta narrowing (when "delta" mode chosen)
+  For each file in the current PR diff:
+    • Not previously commented on  → review in full (new territory)
+    • Previously commented + has new commits → narrow patch to lines
+      added/changed since prior review commit
+    • Previously commented + unchanged → skip
+  
+  If everything is unchanged since prior review:
+    Halt with "No new code since my last review on <date>. Nothing
+    to post."
+
+Phase C — Pass prior devkit comments to the agent
+  New section in the prompt template: "PRIOR REVIEW BY ME". The agent
+  sees its own prior findings with rules:
+    • Don't duplicate identical findings if the code hasn't changed
+    • DO re-raise if the issue persists in a new form
+    • DO surface new issues introduced in the current diff
+    • Empty array is valid if nothing's wrong
+  
+  This is SEPARATE from the existing human-comments section — devkit's
+  own prior output should be treated as a re-review signal, not as
+  "humans already raised this."
+```
+
+Net behavior: re-runs on the same PR no longer noisily duplicate. User
+gets an explicit choice. Default to scoped delta in interactive mode,
+to delta in --bulk-confirm.
+
+#### What we explicitly did NOT add
+
+```
+❌ Auto-resolve prior devkit comments
+   Considered, rejected. "Outdated" in GitHub's UI doesn't mean
+   "addressed" — auto-resolving could hide unfixed issues. That stays
+   the author's call.
+```
+
+#### Confidence cue per comment
+
+Heuristic defense against Type-2 (finding) hallucination — claims that
+look plausible but aren't actually true.
+
+```
+Phase D step 6 — compute confidence per finding
+  • Body has absolute claims ("will fail", "will throw") with no
+    code-anchoring in the patch  →  low
+  • Body has hedged language ("might", "consider") + good anchoring
+    → high
+  • Severity "must" + hedge in body → medium (the agent itself is
+    uncertain)
+  • Quoted identifiers in body don't appear in the file's patch →
+    low signal that the agent referenced something not in the diff
+
+Phase E preview shows the cue per comment:
+  [3] [consider] [confidence: low] src/baz.tsx (line 12, RIGHT)
+      ⚠️ Low confidence — verify manually before posting
+      <body excerpt>...
+
+The cue does NOT auto-drop findings. User sees it in the preview and
+decides what to keep. This is intentional — false negatives are worse
+than verbose previews.
+```
+
+#### Trade-offs
+
+```
+• Confidence heuristic is approximate. Catches obvious cases (absolute
+  claims without anchoring) but misses subtle hallucinations (claims
+  that anchor to real code but are factually wrong about its behavior).
+  Real verification (second-pass agent, tool-call lookups) deferred
+  to v1.7.0 if real-world signal demands it.
+
+• Smart-delta narrowing relies on GitHub's compare API for the
+  prior-commit..HEAD diff. Works for typical PRs; force-pushed PRs may
+  produce stale narrowing if the prior commit is no longer reachable.
+
+• "Delta" mode skips files unmodified since prior review. If the prior
+  review missed a real issue in an unchanged file, this run won't
+  catch it. "Force" mode is the escape hatch.
+```
+
+---
+
 ## v1.5.1 (2026-05-20)
 
 ### `/devkit:pr-review:post-review` — fixes from first real-world run

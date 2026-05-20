@@ -72,19 +72,84 @@ Each `pr-files.json` entry has: `filename`, `status` (added/modified/removed/ren
   ```
   (Same response shape — `filename`, `patch`, etc. Subsequent phases unchanged.)
 
-**Filter existing comments to remove prior devkit runs** — this prevents the
-agent from seeing its OWN previous output as "already raised by human
-reviewers" and skipping everything on re-runs:
+**Separate existing comments into HUMAN and PRIOR-DEVKIT buckets** — both
+get passed to the agent in Phase C but with different framing:
 
 ```bash
-# Drop any comment whose body ends with the devkit tag
+# Drop prior-devkit comments from the "human" list
 jq '[.[] | select(.body | test("🤖 \\[devkit:pr-review\\]$") | not)]' \
   /tmp/pr-review-comments.json > /tmp/pr-review-comments-human.json
 jq '[.[] | select(.body | test("🤖 \\[devkit:pr-review\\]$") | not)]' \
   /tmp/pr-issue-comments.json > /tmp/pr-issue-comments-human.json
+
+# Keep prior-devkit comments in a separate bucket
+jq '[.[] | select(.body | test("🤖 \\[devkit:pr-review\\]$"))]' \
+  /tmp/pr-review-comments.json > /tmp/pr-prior-devkit-comments.json
 ```
 
-Only the `-human.json` versions are passed to the agent in Phase C.
+In Phase C the agent sees:
+  • Human comments → "don't duplicate what humans already pointed out"
+  • Prior devkit comments → "this is YOUR previous review on this PR;
+                            don't duplicate identical findings; DO re-raise
+                            if the issue persists in a new form"
+
+### Phase A.5 — Prior-review detection + re-run choice (v1.5.2)
+
+If `/tmp/pr-prior-devkit-comments.json` has any entries, this is a
+RE-RUN on a PR already reviewed by devkit. Don't silently produce
+duplicates — prompt the user for a choice.
+
+```bash
+PRIOR_COUNT=$(jq 'length' /tmp/pr-prior-devkit-comments.json)
+```
+
+If `PRIOR_COUNT > 0`:
+
+1. Find the head SHA of the last prior devkit review by looking at
+   the latest comment's `commit_id`:
+   ```bash
+   PRIOR_COMMIT=$(jq -r 'sort_by(.created_at) | last | .commit_id' \
+     /tmp/pr-prior-devkit-comments.json)
+   PRIOR_DATE=$(jq -r 'sort_by(.created_at) | last | .created_at' \
+     /tmp/pr-prior-devkit-comments.json)
+   ```
+
+2. Compute what's changed since the prior review:
+   ```bash
+   gh api repos/<owner>/<repo>/compare/<PRIOR_COMMIT>...HEAD \
+     --jq '{commits: .commits | length, files: [.files[].filename]}' \
+     > /tmp/pr-since-prior.json
+   ```
+
+3. Show the user a choice via `AskUserQuestion`:
+
+   ```
+   question: "I previously reviewed this PR on <PRIOR_DATE> (<PRIOR_COUNT> comments).
+              Since then, <N_COMMITS> commits affecting <N_FILES> files.
+              What mode?"
+   header: "Re-review"
+   multiSelect: false
+   options:
+     - label: "Delta — review only what's new since my last review"
+       description: "Smart narrowing. New files reviewed in full. Modified
+                     files narrowed to lines changed AFTER my prior review.
+                     Unmodified files skipped. Cheapest and least noisy."
+     - label: "Force — re-review the full PR"
+       description: "Treat the whole PR as fresh. The agent still sees my
+                     prior comments and dedups against them, but the diff
+                     scope is the full PR."
+     - label: "Cancel — don't post anything"
+       description: "Bail out. Nothing posted. No state changes."
+   ```
+
+4. Set `RUN_MODE` based on the answer: `"delta"` | `"force"` | `"cancel"`.
+   If cancel: halt with "Cancelled. No comments posted."
+
+If `PRIOR_COUNT == 0`, skip this section entirely. `RUN_MODE = "fresh"`.
+
+**Soft-cap behavior with --bulk-confirm:**
+If `--bulk-confirm` is set, skip the prompt. Default to `RUN_MODE = "delta"`
+when a prior review exists (don't surprise users with duplicates).
 
 ### Phase B — Build line → diff-position map
 
@@ -152,6 +217,59 @@ def build_line_hints(positions):
         out.append(f"  {fname}: lines {rs}")
     return '\n'.join(out)
 ```
+
+### Phase B.5 — Narrow scope in delta mode (v1.5.2)
+
+This section ONLY runs when `RUN_MODE == "delta"`. Otherwise skip.
+
+In delta mode we narrow the diff so the agent reviews only what's
+NEW since the prior devkit review:
+
+```python
+def narrow_for_delta(pr_files, prior_commit, prior_commented_files):
+    """
+    Returns a filtered+narrowed file list:
+      • New file (not in prior_commented_files)         → include fully
+      • Modified file that has been touched since prior → narrow patch
+                                                          to new lines
+      • File unchanged since prior review                → skip
+    """
+    # Get the diff from prior_commit..HEAD for narrowing
+    # gh api repos/<owner>/<repo>/compare/<prior_commit>...HEAD --jq '.files'
+    delta_files = fetch_compare_files(prior_commit, "HEAD")
+    delta_paths = {f['filename']: f for f in delta_files}
+
+    narrowed = []
+    for f in pr_files:
+        path = f['filename']
+        was_commented = path in prior_commented_files
+
+        if not was_commented:
+            # File is new territory for me — review in full
+            narrowed.append(f)
+            continue
+
+        # File was already commented on. Check if it's been touched since.
+        if path not in delta_paths:
+            # No change since prior review — skip entirely
+            continue
+
+        # File has changed since prior review.
+        # Replace its patch with the post-prior-commit delta patch.
+        f_narrowed = dict(f)
+        f_narrowed['patch'] = delta_paths[path]['patch']
+        narrowed.append(f_narrowed)
+
+    return narrowed
+```
+
+After narrowing:
+- Rebuild the position map (Phase B) on the narrowed file list
+- Rebuild the valid-line-ranges hint on the narrowed file list
+
+If the narrowed file list is EMPTY (nothing has changed since the
+prior review):
+- Halt: "No new code since my last review on <PRIOR_DATE>. Nothing to post."
 
 ### Phase C — Generate findings via Claude (JSON-only, senior-reviewer mindset)
 
@@ -260,6 +378,32 @@ DEDUPLICATION — patterns array:
 PR DESCRIPTION:
 <paste pr-meta.json's body field. If empty, write "(none)">
 
+PRIOR REVIEW BY ME (only populated on re-runs — v1.5.2):
+<If /tmp/pr-prior-devkit-comments.json is non-empty:
+  Print:
+    "This is a re-review on PR <num>.
+     My previous review was posted on <PRIOR_DATE> with <PRIOR_COUNT> comments.
+     <If RUN_MODE='delta': 'The diff below has been narrowed to changes
+        since that review.'>
+     <If RUN_MODE='force': 'The full PR diff is below.'>
+
+     My previous findings:
+       - <path>:<line> [<severity>]: <body excerpt up to 200 chars>
+       - ..."
+
+  Rules for the agent:
+    • Don't duplicate identical findings — if my prior comment still
+      applies and the code hasn't changed, skip it
+    • DO re-raise if the issue persists in a NEW form (e.g., the
+      author refactored but the underlying problem remains)
+    • DO surface NEW issues introduced in the current diff
+    • If everything I previously flagged is fixed and nothing new is
+      wrong, output an empty comments array — that's a valid honest
+      answer
+
+If /tmp/pr-prior-devkit-comments.json is empty:
+  Print: "(no prior review by devkit on this PR)">
+
 EXISTING HUMAN REVIEWER COMMENTS (already raised — do not duplicate):
 <paste, for each comment in pr-review-comments-human.json and
 pr-issue-comments-human.json:
@@ -323,6 +467,56 @@ both `comments` and `patterns` arrays, abort with the parse error.
    by ±1 from the agent's intended line in the displayed view.
    The position map is kept only as a membership check in step 3 above.
 
+6. **Compute confidence cue per comment (v1.5.2)** — heuristic defense
+   against Type-2 (finding) hallucination. The cue is shown in the
+   preview (Phase E) so the user can vet low-confidence findings before
+   posting. It does NOT auto-drop findings.
+
+   ```python
+   def confidence_cue(comment, patch_text):
+       """Returns 'high' | 'medium' | 'low' based on text heuristics."""
+       body = comment['body'].lower()
+       severity = comment.get('severity', 'consider')
+
+       # Heuristic 1 — hedged vs absolute language
+       absolute = any(w in body for w in [
+           'will fail', 'will break', 'will throw', 'will crash',
+           'this is a security', 'this is wrong'])
+       hedged = any(w in body for w in [
+           'might', 'may', 'could', 'consider', 'perhaps', 'possibly',
+           'might want to'])
+
+       # Heuristic 2 — does the comment reference code that's in the patch?
+       # Extract identifiers in backticks from the body. Count how many
+       # appear in the file's patch text. If <50%, low signal.
+       import re
+       quoted = re.findall(r'`([A-Za-z_][A-Za-z0-9_.]*)`', body)
+       if quoted:
+           in_patch = sum(1 for q in quoted if q in patch_text)
+           anchored_ratio = in_patch / len(quoted)
+       else:
+           anchored_ratio = 1.0  # no quoted identifiers — neutral
+
+       # Combine
+       if severity == 'must':
+           if absolute and anchored_ratio < 0.5:
+               return 'low'  # absolute claim with no anchoring = likely hallucinated
+           if hedged:
+               return 'medium'  # must + hedge = author is uncertain
+           if anchored_ratio >= 0.8:
+               return 'high'
+           return 'medium'
+       else:  # consider
+           if anchored_ratio < 0.5:
+               return 'low'
+           if hedged:
+               return 'high'  # consider + hedge = honest suggestion
+           return 'medium'
+   ```
+
+   Attach `confidence` to each processed entry. Default to 'medium' if
+   the heuristic can't decide.
+
 **For `patterns`:**
 
 If `patterns` is non-empty, build the review body. Otherwise body is just
@@ -359,10 +553,14 @@ Patterns:
   <P_count> patterns found across <Sum> files
 
 Inline comments:
-  [1] [must] src/foo.ts (line 42, RIGHT)
+  [1] [must] [confidence: high] src/foo.ts (line 42, RIGHT)
       <first 120 chars of body>...
 
-  [2] [consider] src/bar.tsx (line 88, RIGHT)
+  [2] [consider] [confidence: medium] src/bar.tsx (line 88, RIGHT)
+      <first 120 chars of body>...
+
+  [3] [consider] [confidence: low] src/baz.tsx (line 12, RIGHT)
+      ⚠️ Low confidence — verify manually before posting
       <first 120 chars of body>...
 
   ...
@@ -475,6 +673,10 @@ Review URL: https://github.com/<owner>/<repo>/pull/<num>#pullrequestreview-<id>
 | Removed file (status=removed) | New lines don't exist for removed files. Drop pre-emptively in Phase A filtering. |
 | PR body is empty / no existing comments | Pass `(none)` strings to the prompt. Don't blow up. |
 | Fork PR | Patch positions are relative to the base repo. Mechanism works unchanged. |
+| Prior devkit review exists, no new commits since | Halt: "No new code since my last review on <date>. Nothing to post." |
+| Prior devkit review exists + user picks "cancel" | Halt cleanly. No state change. |
+| Prior devkit review exists + --bulk-confirm set | Default to "delta" mode (safer than silently re-posting duplicates) |
+| Low-confidence cue on many comments | Still posted by default. User can decide in preview. Cue is informational. |
 
 ## Guardrails
 
@@ -491,6 +693,15 @@ Review URL: https://github.com/<owner>/<repo>/pull/<num>#pullrequestreview-<id>
   (Phase B builds it, Phase C consumes it). Without this, the agent
   hallucinates line numbers and ALL findings get dropped in Phase D.
 - ALWAYS use `line` + `side: "RIGHT"` in API payload (not `position`)
+- ALWAYS detect prior devkit reviews before posting (Phase A.5) — never
+  silently re-post duplicates on a PR already reviewed
+- ALWAYS pass prior devkit comments to the agent as dedup signal (not
+  just human comments) — the agent should NOT see its own prior output
+  as "humans pointed this out" but SHOULD see it as "I said this last
+  time, don't repeat unless it still applies"
+- NEVER auto-resolve prior devkit comments. That's the author's call.
+- ALWAYS attach a confidence cue to each comment in the preview — the
+  user decides whether to keep low-confidence ones
 - NEVER chain retries beyond ONE attempt after rejection
 - NEVER comment on excluded paths (lock files, generated, vendored)
 
