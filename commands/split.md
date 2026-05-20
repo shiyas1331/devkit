@@ -1,16 +1,24 @@
 ---
-description: Analyze a large PR and split it into smaller, dependency-aware PRs. SUGGEST plans, DRAFT creates branches, EXECUTE also opens PRs.
-argument-hint: <PR url, PR number, or branch name> [--draft | --execute] [--max-files=N] [--base=<branch>]
+description: Split a large set of changes — an open PR or a local branch — into smaller, dependency-aware PRs. SUGGEST plans, DRAFT creates branches, EXECUTE also opens PRs.
+argument-hint: <PR url/number, branch name, --local> [--draft | --execute] [--max-files=N] [--base=<branch>]
 model: opus
 ---
 
-# Split a large PR into smaller dependency-aware PRs
+# Split a large set of changes into smaller dependency-aware PRs
 
-Large PRs are slow to review and easy to merge with bugs. This command
-analyzes a PR, identifies logical groupings, computes import-based
-dependencies between them, and produces a concrete split plan.
+Large changesets are slow to review and easy to merge with bugs. This
+command analyzes either an open PR OR a local branch, identifies
+logical groupings, computes import-based dependencies between them,
+and produces a concrete split plan.
 
-Three modes:
+**Two input sources:**
+- **PR mode** — point at an open GitHub PR (URL, number, or its branch
+  name). Files come from `gh api`.
+- **Local mode (`--local` / `--branch=<name>`)** — point at a local
+  branch that hasn't been pushed yet. Files come from `git diff
+  <base>...HEAD`. Great for splitting BEFORE opening a mega-PR.
+
+**Three execution modes:**
 - **SUGGEST (default)** — analysis only. Outputs a split plan, a
   reviewable shell script, and draft PR descriptions. No side effects.
 - **DRAFT (`--draft`)** — runs SUGGEST first, then creates the actual
@@ -18,6 +26,8 @@ Three modes:
 - **EXECUTE (`--execute`)** — runs SUGGEST + DRAFT, then opens GitHub
   PRs for each branch in dependency tier order. Each PR uses the
   draft description from Phase F. Stacked PRs get the right `--base`.
+  In local mode, EXECUTE requires the original branch to be pushed
+  first (refuses with a clear message if not).
 
 **Response format:** one short sentence on what was done, the next
 concrete action, terse.
@@ -30,15 +40,40 @@ concrete action, terse.
 - `$ARGUMENTS` is empty, OR
 - `$ARGUMENTS` contains only a PR identifier with no `--*` flag
 
-Use `AskUserQuestion`:
+**Step 1 — choose the source.** Use `AskUserQuestion`:
 
 ```
-question: "What do you want to do with this PR?"
+question: "What are you splitting?"
+header: "Source"
+multiSelect: false
+options:
+  - label: "An open GitHub PR"
+    description: "Point at an existing PR — by URL, number, or its
+                  branch name. Files are fetched via `gh api`. Use
+                  this when the PR is already open and you want to
+                  break it down."
+  - label: "A local branch (not yet pushed / no PR yet)"
+    description: "Split your current branch (or a named branch) BEFORE
+                  opening a single mega-PR. Files come from `git diff
+                  <base>...HEAD`. The best time to split — analyze
+                  your work before review surface exists."
+```
+
+If source is "open PR", prompt: `"PR? (URL, number, or branch name —
+e.g. 471 or feat/CAT-494-foo)"`.
+
+If source is "local branch", prompt: `"Branch? (blank = current branch.
+Base auto-detects develop/main/master — pass --base=<name> to override)"`.
+
+**Step 2 — choose the mode.** Use `AskUserQuestion`:
+
+```
+question: "What do you want to do?"
 header: "Split mode"
 multiSelect: false
 options:
   - label: "Suggest splits (analysis only, no changes)"
-    description: "Analyze the PR's files, dependencies, and patterns.
+    description: "Analyze the files, dependencies, and patterns.
                   Output a split plan + a reviewable shell script you
                   can run yourself. Zero side effects. Recommended
                   first run."
@@ -49,21 +84,20 @@ options:
                   when ready."
   - label: "Execute splits (create branches AND open PRs)"
     description: "Run analysis + create branches + open GitHub PRs in
-                  dependency tier order. Stacked PRs get the right
-                  base. Closes the original PR as a draft (manual final
-                  close). Multiple confirmations along the way."
+                  dependency tier order. In local mode, requires the
+                  original branch to be pushed first."
   - label: "Show verbose help"
     description: "Print the full flag reference and edge-case behavior."
 ```
 
-If `$ARGUMENTS` has no PR yet, prompt: `"PR? (URL, number, or branch
-name — e.g. 471 or feat/CAT-494-foo)"`.
-
-Map the choice + PR to:
-- Suggest → `/devkit:split-pr <PR>`
-- Draft   → `/devkit:split-pr <PR> --draft`
-- Execute → `/devkit:split-pr <PR> --execute`
-- Help    → print the verbose section below + STOP
+Map the (source, mode) choice to:
+- PR + Suggest → `/devkit:split <PR>`
+- PR + Draft   → `/devkit:split <PR> --draft`
+- PR + Execute → `/devkit:split <PR> --execute`
+- Local + Suggest → `/devkit:split --local` (or `--branch=<name>`)
+- Local + Draft   → `/devkit:split --local --draft`
+- Local + Execute → `/devkit:split --local --execute`
+- Help → print the verbose section below + STOP
 
 ### Skip the front door
 
@@ -71,24 +105,42 @@ When any `--*` flag is provided in `$ARGUMENTS`, the picker is skipped.
 
 ## Input
 
-PR identifier: `$ARGUMENTS`
+`$ARGUMENTS` resolves to one of two source modes:
 
-Accept: GitHub PR URL, PR number (resolve via current repo's origin),
-or branch name (`gh pr list --head <branch>`).
+### PR mode
 
-Flags:
+Pass a PR identifier as the first positional arg:
+- GitHub PR URL
+- PR number (resolved via the current repo's origin)
+- Branch name with an open PR (`gh pr list --head <branch>`)
+
+### Local mode
+
+Pass `--local` OR `--branch=<name>` instead of a PR identifier:
+- `--local` — split the CURRENT branch vs its auto-detected base
+- `--branch=<name>` — split a specific local branch vs its base
+
+In local mode, base auto-detects in this order: `develop`, then
+`main`, then `master`. Override with `--base=<branch>`.
+
+### Flags
+
 - `--draft` — create the branches locally after analysis (Mode 2)
 - `--execute` — create the branches AND open GitHub PRs (Mode 3, v1.6.1)
+- `--local` — split the current local branch instead of a PR (v1.6.2)
+- `--branch=<name>` — split a specific local branch (v1.6.2; implies
+  local mode)
+- `--base=<branch>` — explicit base branch (required if auto-detect
+  finds none; defaults to PR's base in PR mode)
 - `--max-files=<N>` — override the per-bucket cap (default 25 files)
-- `--base=<branch>` — base branch for the new splits
-  (default: the original PR's base branch)
 - `--include-tests-with-source` — pair test files with their source
   file's bucket (default: tests group together by directory)
 - `--push` — push branches to origin after creating (DRAFT mode only;
   EXECUTE mode pushes by default since PRs need remote branches)
-- `--close-original` — when in EXECUTE mode, also close the original
-  PR after opening the splits. Default: leave open as draft for the
-  author to close manually.
+- `--close-original` — when in EXECUTE mode (PR source only), also
+  close the original PR after opening the splits. Default: leave
+  open as draft for the author to close manually. No-op in local
+  mode (there is no original PR to close).
 
 (Empty `$ARGUMENTS` is handled by the picker above.)
 
@@ -99,7 +151,33 @@ Read available context BEFORE doing anything:
 2. `.claude/codebase/*.md`
 3. `tsconfig.json` / `babel.config.js` for import alias resolution
 
-## Phase A — Fetch the PR + files
+## Phase A — Fetch metadata + files (forks on input type, v1.6.2)
+
+Determine source mode from `$ARGUMENTS`:
+
+```python
+def resolve_source(args):
+    """Returns (source_mode, identifier, base_override)."""
+    base_override = next((a.split('=', 1)[1] for a in args
+                         if a.startswith('--base=')), None)
+
+    if '--local' in args:
+        return 'local', None, base_override  # current branch
+    branch_flag = next((a.split('=', 1)[1] for a in args
+                       if a.startswith('--branch=')), None)
+    if branch_flag:
+        return 'local', branch_flag, base_override
+
+    # First positional arg is the PR identifier
+    pr_id = next((a for a in args if not a.startswith('--')), None)
+    if not pr_id:
+        # Empty — picker should have handled this; if we got here, halt
+        raise Error("No PR or --local/--branch given. Use the picker "
+                   "(empty invocation) or pass a PR / --local flag.")
+    return 'pr', pr_id, base_override
+```
+
+### Source A — PR mode (existing behavior)
 
 ```bash
 # 1. PR metadata + state
@@ -111,7 +189,6 @@ gh api repos/<owner>/<repo>/pulls/<num> \
 
 # Halt if state is "merged" or "closed".
 # Halt if `gh auth status` fails.
-# Determine the actual base branch (e.g., "develop", "main").
 
 # 2. Per-file patches
 gh api repos/<owner>/<repo>/pulls/<num>/files --paginate \
@@ -122,6 +199,117 @@ gh api repos/<owner>/<repo>/pulls/<num>/files --paginate \
 #    - Working tree must be clean (git status --porcelain returns empty)
 #    - If not, halt with the issue
 ```
+
+Set:
+```
+PR_NUMBER=<num>
+HEAD_REF=<pr head_ref>
+BASE_REF=<base_override or pr base_ref>
+HEAD_SHA=<pr head_sha>
+PR_TITLE=<pr title>
+SLUG=<num>   # used in /tmp paths and split branch names
+```
+
+### Source B — Local mode (NEW in v1.6.2)
+
+```bash
+# 1. Determine the branch to split
+if [ -n "$BRANCH_FLAG" ]; then
+  HEAD_REF="$BRANCH_FLAG"
+  # Branch must exist locally
+  git rev-parse --verify "$HEAD_REF" >/dev/null 2>&1 \
+    || { echo "Branch not found: $HEAD_REF"; exit 1; }
+else
+  HEAD_REF=$(git rev-parse --abbrev-ref HEAD)
+  # Refuse if on detached HEAD
+  [ "$HEAD_REF" = "HEAD" ] && { echo "Detached HEAD. Check out a branch or use --branch=<name>."; exit 1; }
+fi
+
+# 2. Auto-detect base if not overridden
+if [ -z "$BASE_OVERRIDE" ]; then
+  for candidate in develop main master; do
+    if git show-ref --verify --quiet "refs/heads/$candidate" \
+       || git show-ref --verify --quiet "refs/remotes/origin/$candidate"; then
+      BASE_REF="$candidate"
+      break
+    fi
+  done
+  [ -z "$BASE_REF" ] && { echo "Could not auto-detect base (no develop/main/master). Use --base=<name>."; exit 1; }
+else
+  BASE_REF="$BASE_OVERRIDE"
+fi
+
+# 3. Refuse if HEAD == BASE (nothing to split)
+[ "$HEAD_REF" = "$BASE_REF" ] && { echo "Branch is the base — nothing to split."; exit 1; }
+
+# 4. Verify the working tree is clean
+[ -n "$(git status --porcelain)" ] && { echo "Working tree not clean. Commit or stash first."; exit 1; }
+
+# 5. Collect changed files
+HEAD_SHA=$(git rev-parse "$HEAD_REF")
+MERGE_BASE=$(git merge-base "$HEAD_REF" "$BASE_REF")
+git diff --name-status "$MERGE_BASE".."$HEAD_REF" > /tmp/local-files.txt
+
+# Refuse if the diff is empty
+[ ! -s /tmp/local-files.txt ] && { echo "No changes between $BASE_REF and $HEAD_REF."; exit 1; }
+```
+
+**Synthesize an in-PR file list** from `/tmp/local-files.txt`. Each line is:
+`<status>\t<filename>` (or for renames: `R<score>\t<old>\t<new>`).
+
+Convert to the same shape Phase B expects:
+```python
+def parse_local_files(path):
+    """Returns [{filename, status, ...}] mimicking gh's pulls/files."""
+    out = []
+    for line in open(path):
+        parts = line.rstrip('\n').split('\t')
+        status_letter = parts[0][0]
+        status = {'A': 'added', 'M': 'modified', 'D': 'removed',
+                  'R': 'renamed', 'C': 'copied'}.get(status_letter, 'modified')
+        fname = parts[-1]  # for renames, parts[2] is new name
+        out.append({'filename': fname, 'status': status})
+    return out
+```
+
+Set:
+```
+PR_NUMBER=null
+HEAD_REF=<local branch name>
+BASE_REF=<auto-detected or override>
+HEAD_SHA=<git rev-parse HEAD>
+PR_TITLE=<auto-derived from commit log, see below>
+SLUG=<derived from branch name; see below>
+```
+
+**Slug derivation** (used in `/tmp/split-<slug>-...` paths and the
+`split/<slug>/<bucket>-...` branch names):
+
+```python
+def derive_slug(branch_name):
+    """
+    feat/COVEX-61888-onboarding-wizard → COVEX-61888
+    bugfix/CAT-511-self-serve-bugs    → CAT-511
+    foo/bar/baz                       → baz
+    fix-the-thing                     → fix-the-thing
+    """
+    import re
+    # Try Jira-style ticket
+    m = re.search(r'([A-Z]+-\d+)', branch_name)
+    if m:
+        return m.group(1)
+    # Fall back to last path segment, sanitized
+    last = branch_name.rsplit('/', 1)[-1]
+    return re.sub(r'[^a-zA-Z0-9-]', '-', last)[:40]
+```
+
+**PR_TITLE auto-derivation** — take the first line of the most recent
+commit on the branch:
+```bash
+git log -1 --pretty=%s "$HEAD_REF"
+```
+
+### After either source — common filtering
 
 **Filter the file list** (same exclusions as pr-review:post-review):
 - `*.lock`, `package-lock.json`, etc.
@@ -902,7 +1090,51 @@ STOP.
 
 ⚠️ **Write action — opens GitHub PRs.** This mode runs the full pipeline
 and creates PRs. Use after you've validated the SUGGEST output at least
-once on the same PR.
+once on the same source.
+
+**Precondition check (local mode, v1.6.2):** Before doing anything,
+verify the original branch is pushable as a base:
+
+```bash
+if [ "$SOURCE_MODE" = "local" ]; then
+  # Original branch must have an upstream OR exist on origin
+  if ! git rev-parse --verify "origin/$HEAD_REF" >/dev/null 2>&1; then
+    cat <<EOF
+❌ Branch '$HEAD_REF' is not pushed to origin.
+
+Mode 3 (--execute) opens GitHub PRs, which need a remote branch
+to serve as the base for stacked PRs.
+
+Two options:
+  1. Push the branch first, then re-run:
+       git push -u origin $HEAD_REF
+       /devkit:split --branch=$HEAD_REF --execute
+
+  2. Use DRAFT mode instead (creates branches locally, no PRs):
+       /devkit:split --branch=$HEAD_REF --draft
+EOF
+    exit 1
+  fi
+
+  # Even if pushed, refuse if there are unpushed commits ahead of origin
+  AHEAD=$(git rev-list --count "origin/$HEAD_REF".."$HEAD_REF" 2>/dev/null)
+  if [ "$AHEAD" -gt 0 ]; then
+    cat <<EOF
+❌ Branch '$HEAD_REF' has $AHEAD unpushed commit(s) ahead of origin.
+
+The split PRs will be created from your LOCAL state — but the base
+PR (this branch on origin) is behind. That will cause the split
+PRs to include commits that aren't visible in the base.
+
+Push your commits first:
+    git push origin $HEAD_REF
+
+Then re-run.
+EOF
+    exit 1
+  fi
+fi
+```
 
 Runs Phases A → F (same as SUGGEST), then DRAFT's branch creation,
 then opens PRs:
@@ -1043,31 +1275,39 @@ STOP.
 
 | Case | Behavior |
 |---|---|
-| PR has < 30 files | Halt: "PR is small enough to review as-is. Use /devkit:pr-review instead." |
-| PR has only 1 logical bucket after analysis | Halt: "Cannot split — all files are in one tightly-coupled cluster." |
+| Change has < 30 files | Halt: "Change is small enough to review as-is. Use /devkit:pr-review instead." |
+| Only 1 logical bucket after analysis | Halt: "Cannot split — all files are in one tightly-coupled cluster." |
 | Working tree not clean | Halt with the issue. Don't touch anything. |
-| PR is merged / closed | Halt with the state. |
-| `gh` not authenticated | Halt: "Run `gh auth login` and retry." |
+| PR is merged / closed (PR mode) | Halt with the state. |
+| `gh` not authenticated (PR mode or EXECUTE) | Halt: "Run `gh auth login` and retry." |
 | Cycle detected in dep graph | Warn, combine cycle members into one bucket |
 | Some files have no resolvable imports | Treat as no deps (they go in their path-bucket) |
-| --draft + branches already exist | Halt: "Branches split/<num>/* already exist. Clean up first." |
+| --draft + branches already exist | Halt: "Branches split/<slug>/* already exist. Clean up first." |
 | --push + push fails | Stop, print error. Branches still exist locally. |
-| Original head_ref has been force-pushed | Use the latest head SHA from /tmp/pr-meta.json — accept stale local state |
-| Renamed files in the PR | Use the new filename for bucketing |
+| Original head_ref has been force-pushed | Use the latest head SHA from metadata — accept stale local state |
+| Renamed files | Use the new filename for bucketing |
 | Removed files | Include in their old-path bucket (the deletion needs to land somewhere) |
+| **Local mode: HEAD == base** (v1.6.2) | Halt: "Branch is the base — nothing to split." |
+| **Local mode: detached HEAD** (v1.6.2) | Halt: "Detached HEAD. Check out a branch or use --branch=<name>." |
+| **Local mode: empty diff vs base** (v1.6.2) | Halt: "No changes between <base> and <branch>." |
+| **Local mode: no develop/main/master found** (v1.6.2) | Halt: "Could not auto-detect base. Use --base=<name>." |
+| **Local + EXECUTE + branch unpushed** (v1.6.2) | Halt: "Branch not pushed to origin. Push first, or use --draft." |
+| **Local + EXECUTE + unpushed commits ahead** (v1.6.2) | Halt: "Branch is ahead of origin. Push first, then re-run." |
+| **Local + --close-original** (v1.6.2) | No-op (no original PR exists). Print info and continue. |
 
 ## Guardrails
 
-- NEVER touch the original PR's branch
+- NEVER touch the original (input) branch
 - NEVER force-push to anything
-- NEVER open PRs — that's Mode 3 (deferred)
 - ALWAYS verify the working tree is clean before creating branches
-- ALWAYS use the `split/<pr>/` namespace for new branches (easy cleanup)
+- ALWAYS use the `split/<slug>/` namespace for new branches (easy cleanup)
 - ALWAYS print the rollback command in the summary
 - NEVER skip the confirmation prompt unless --bulk-confirm
   (NOTE: --bulk-confirm not supported in this command — splitting
   branches is destructive enough to always confirm)
 - ALWAYS validate that the dep graph is acyclic before generating
+- LOCAL MODE: NEVER push the original branch on the user's behalf —
+  if EXECUTE requires it, refuse and tell the user to push manually
   the merge order — if cyclic, merge the cycle members into one bucket
 - NEVER write to disk in SUGGEST mode
 

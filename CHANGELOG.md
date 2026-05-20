@@ -1,5 +1,84 @@
 # Changelog
 
+## v1.6.2 (2026-05-20)
+
+### `/devkit:split` — renamed from split-pr, local-branch mode added
+
+The tool now handles two input sources, so the `-pr` suffix was
+misleading.
+
+> ⚠️ **Validation status:** Local mode is **spec-only** in this
+> release. The git-based Phase A fork, slug derivation, and the
+> Mode 3 unpushed-branch refusal have not been run on a real
+> branch yet. Mode 3 + non-TS adapters from v1.6.1 are still
+> preview-quality. Treat the whole local pipeline as preview
+> until validated.
+
+#### BREAKING: command renamed `split-pr` → `split`
+
+```
+Old:  /devkit:split-pr 471
+New:  /devkit:split 471
+
+No alias provided — the tool is new enough that nobody has it in
+their muscle memory yet. Clean break, single source of truth.
+```
+
+#### NEW: local-branch mode
+
+Split a local branch BEFORE opening any PR. This is the natural
+time to split — analyze your work before review surface exists.
+
+```
+# Current branch vs auto-detected base (develop/main/master)
+/devkit:split --local
+
+# Specific branch
+/devkit:split --branch=feat/COVEX-61888-onboarding
+
+# Explicit base
+/devkit:split --local --base=release/v3
+
+# Combine with DRAFT or EXECUTE
+/devkit:split --local --draft       # branches only, no PRs
+/devkit:split --local --execute     # branches + PRs (needs push)
+```
+
+**Phase A fork** — when `--local` or `--branch=<name>` is passed,
+Phase A skips `gh api` entirely and uses git:
+- `git diff --name-status <merge-base>...HEAD` for the file list
+- Base auto-detects develop → main → master (override with `--base`)
+- Working-tree-clean check is enforced (same as PR mode)
+- Slug derives from the branch name: Jira ticket pattern preferred
+  (`feat/COVEX-61888-foo` → `COVEX-61888`), otherwise last path
+  segment
+
+**Mode 3 precondition (local mode)** — `--execute` refuses if:
+- The original branch isn't on origin (`origin/<branch>` doesn't exist)
+- The original branch has unpushed commits ahead of origin
+
+In either case, the user gets a clear message: push first, OR fall
+back to `--draft`.
+
+#### NEW: picker is two-step in v1.6.2
+
+When invoked empty, the picker first asks the source (PR vs local
+branch), then the mode (SUGGEST / DRAFT / EXECUTE).
+
+#### NEW edge cases handled (local mode)
+
+```
+HEAD == base                    → halt, "nothing to split"
+Detached HEAD                   → halt, "check out a branch"
+Empty diff vs base              → halt, "no changes"
+No develop/main/master found    → halt, "use --base"
+EXECUTE + unpushed branch       → halt, "push first or --draft"
+EXECUTE + unpushed commits      → halt, "push first"
+--close-original in local mode  → no-op (nothing to close)
+```
+
+---
+
 ## v1.6.1 (2026-05-20)
 
 ### `/devkit:split-pr` — Mode 3 (EXECUTE), multi-language deps, full file lists
