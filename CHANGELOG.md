@@ -1,5 +1,96 @@
 # Changelog
 
+## v1.5.1 (2026-05-20)
+
+### `/devkit:pr-review:post-review` — fixes from first real-world run
+
+v1.5.0 was tested on practo/provider-app#470. Three real issues surfaced;
+this release fixes all three. Numbers reference the actual observed
+behavior on that PR.
+
+#### Fix 1 — Line-number hallucination (the big one)
+
+```
+Symptom (v1.5.0):
+  Agent produced 5 findings on PR #470. All 5 had line numbers
+  that DID NOT EXIST in the diff:
+    package.json:309        (file has 16 mappable lines)
+    setup.ts:442            (file has 81 lines total)
+    self-serve.tsx:166      (file has 40 mappable lines)
+    PostEducationDetail:572 (file has 220 mappable lines)
+    jest.config.js:219      (file has 92 mappable lines)
+  
+  All 5 findings dropped at Phase D as "unmapped." Empty output.
+  Had to manually re-prompt the agent with explicit valid-line ranges
+  before it produced usable output.
+
+Root cause:
+  The agent saw the diff but had no clear signal about which line
+  numbers were actually anchored. It picked plausible-looking numbers
+  for typical files.
+
+Fix:
+  Phase B now ALSO builds a compact valid-line-ranges hint (compressed
+  ranges like "lines 7-15, 77-83"). Phase C's prompt template now
+  injects this hint between the project conventions and the diff,
+  with explicit language: "every `line` value MUST be from this list".
+  
+  Tested in the re-prompt run: agent produced 6 findings, 5 of which
+  mapped correctly to actual file lines. No more hallucination.
+```
+
+#### Fix 2 — Length cap raised from 400 → 500 chars
+
+```
+Symptom (v1.5.0):
+  A substantive 417-char finding on setup.ts (about NativeModules
+  shared-state leakage across tests) got silently dropped by the
+  >400 cap. Real engineering issue, lost to the filter.
+
+Root cause:
+  400 chars was too tight. The cap is meant to defend against verbose
+  agent output, not drop technical findings that need a couple of
+  sentences to explain.
+
+Fix:
+  Cap raised to 500. The 417-char finding would now pass through.
+  Other defenses (bullet-list filter, whitespace-only filter) unchanged.
+```
+
+#### Fix 3 — Switch from `position` to `line` + `side: "RIGHT"`
+
+```
+Symptom (v1.5.0):
+  Comments posted successfully, but GitHub displayed them ±1 line
+  from the agent's intent. The agent said line 10 in package.json;
+  GitHub showed the comment at line 11. Five out of five comments
+  drifted by 1 line in the displayed view.
+
+Root cause:
+  The `position` field anchors to the unified-diff offset, not the
+  new-file line. GitHub renders the comment at whatever line the
+  position lands on in its diff view, which can be off-by-one from
+  the agent's intended target.
+
+Fix:
+  Payload now uses `line` (the new-file line number directly) plus
+  `side: "RIGHT"` (the new file). GitHub's modern API supports this
+  shape and anchors precisely. The position map stays in Phase B
+  but only as a membership check (verify the line is in the diff)
+  — it's no longer passed to the API.
+```
+
+#### Backward compat
+
+```
+• All existing flags work the same way
+• No behavior change for the prose-brief modes (default/quick/save/post)
+• Only --post-review behavior changed
+• Re-runs still self-dedup via the 🤖 [devkit:pr-review] tag
+```
+
+---
+
 ## v1.5.0 (2026-05-20)
 
 ### `/devkit:pr-review:post-review` — true inline comments anchored to diff positions

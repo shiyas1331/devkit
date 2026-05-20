@@ -127,6 +127,32 @@ def build_position_map(patch_text):
 
 Build `patchPositions = { "src/foo.ts": {42: 7, 43: 8, ...}, ... }`.
 
+**Also build a compact valid-line-ranges hint** to inject into the agent
+prompt in Phase C. Without this, the agent will hallucinate plausible-looking
+line numbers (e.g., line 309 for a file with only 16 mappable lines) and
+ALL findings get dropped at Phase D as unmapped. This is a real failure
+mode observed in v1.5.0 — fix in v1.5.1 is to ALWAYS inject the hints.
+
+```python
+def build_line_hints(positions):
+    """Returns text block: VALID LINES PER FILE with compressed ranges."""
+    out = ["VALID LINE NUMBERS PER FILE — only these lines exist in the diff:"]
+    out.append("Every `line` value in your output MUST be from this list.")
+    out.append("")
+    for fname, p in positions.items():
+        if not p: continue
+        lines = sorted(int(k) for k in p.keys())
+        runs = []
+        start = prev = lines[0]
+        for ln in lines[1:]:
+            if ln == prev + 1: prev = ln
+            else: runs.append((start, prev)); start = prev = ln
+        runs.append((start, prev))
+        rs = ', '.join(f"{a}-{b}" if a != b else str(a) for a, b in runs)
+        out.append(f"  {fname}: lines {rs}")
+    return '\n'.join(out)
+```
+
 ### Phase C — Generate findings via Claude (JSON-only, senior-reviewer mindset)
 
 Call an agent with the EXACT prompt shape below. The agent must return ONLY
@@ -246,6 +272,10 @@ PROJECT CONVENTIONS (if any):
 <paste content of CLAUDE.md, .claude/codebase/*.md, CONTRIBUTING.md, STYLE.md
 from the repo root>
 
+VALID LINES PER FILE (CRITICAL — only these lines exist in the diff;
+every `line` value in your output MUST be one of these):
+<paste output of build_line_hints() — the compressed ranges per file>
+
 DIFF (per-file patches):
 <paste each file's `filename`, `status`, and `patch` from /tmp/pr-files.json>
 
@@ -267,21 +297,31 @@ both `comments` and `patterns` arrays, abort with the parse error.
    - Drop items that fail validation
 
 2. **Length-cap quality filter** (defense against verbose agent):
-   - Drop if `body` length > 400 characters
+   - Drop if `body` length > 500 characters (raised from 400 in v1.5.1
+     after a substantive 417-char finding got dropped in real-world use)
    - Drop if `body` contains bullet lines (matches `^\s*[-*]\s` regex)
    - Drop if `body` is whitespace-only
 
-3. **Map line to diff position:**
+3. **Verify line is in the diff** (membership check via position map):
    - Look up `patchPositions[path]`. If path not in map, drop the finding.
-   - Look up `patchPositions[path][line]`. If line not in map, drop the
-     finding (line is not in the diff).
+   - Look up `patchPositions[path][line]`. If not present, drop the finding
+     (the line is not in the diff — either unchanged or outside touched
+     range).
 
 4. **Build final body** — posting layer prefixes severity + suffixes tag:
    ```
    final_body = "[" + severity + "] " + body + "\n\n🤖 [devkit:pr-review]"
    ```
 
-5. Build the API entry: `{path, position, body: final_body}`.
+5. Build the API entry using `line` + `side` (NOT `position`):
+   ```
+   {path, line, side: "RIGHT", body: final_body}
+   ```
+   GitHub's modern reviews API supports `line` (file line in the NEW
+   version) + `side: "RIGHT"` for the new file. This gives more precise
+   anchoring than `position` (the legacy field), which sometimes drifts
+   by ±1 from the agent's intended line in the displayed view.
+   The position map is kept only as a membership check in step 3 above.
 
 **For `patterns`:**
 
@@ -319,10 +359,10 @@ Patterns:
   <P_count> patterns found across <Sum> files
 
 Inline comments:
-  [1] [must] src/foo.ts (line 42 → pos 7)
+  [1] [must] src/foo.ts (line 42, RIGHT)
       <first 120 chars of body>...
 
-  [2] [consider] src/bar.tsx (line 88 → pos 19)
+  [2] [consider] src/bar.tsx (line 88, RIGHT)
       <first 120 chars of body>...
 
   ...
@@ -364,7 +404,7 @@ cat > /tmp/pr-review-payload.json <<EOF
   "body": "<review_body>",
   "event": "COMMENT",
   "comments": [
-    { "path": "src/foo.ts", "position": 7, "body": "..." },
+    { "path": "src/foo.ts", "line": 42, "side": "RIGHT", "body": "..." },
     ...
   ]
 }
@@ -377,8 +417,8 @@ gh api -X POST repos/<owner>/<repo>/pulls/<num>/reviews \
 **On error — retry once with offending comments removed:**
 
 If the POST returns 422 with errors that identify SPECIFIC comments
-(typically by index, or with messages like "position is invalid" /
-"path does not exist in diff"):
+(typically by index, or with messages like "line is invalid" /
+"path does not exist in diff" / "line is not part of the diff"):
 
 1. Parse the GitHub error response to identify which comments failed
 2. Remove those comments from the payload (track them as
@@ -444,8 +484,13 @@ Review URL: https://github.com/<owner>/<repo>/pull/<num>#pullrequestreview-<id>
 - ALWAYS prefix each body with severity (`[must]` or `[consider]`)
 - ALWAYS filter prior devkit comments from the "existing reviewers" prompt
   input — otherwise re-runs see their own output as "already raised"
-- NEVER post empty bodies or bodies > 400 characters
+- NEVER post empty bodies or bodies > 500 characters (cap raised in
+  v1.5.1; was 400 in v1.5.0)
 - NEVER comment on lines outside the diff — drop with logging
+- ALWAYS inject the valid-line-ranges hint into the agent prompt
+  (Phase B builds it, Phase C consumes it). Without this, the agent
+  hallucinates line numbers and ALL findings get dropped in Phase D.
+- ALWAYS use `line` + `side: "RIGHT"` in API payload (not `position`)
 - NEVER chain retries beyond ONE attempt after rejection
 - NEVER comment on excluded paths (lock files, generated, vendored)
 
