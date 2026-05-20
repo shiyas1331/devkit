@@ -1,5 +1,100 @@
 # Changelog
 
+## v1.6.0 (2026-05-20)
+
+### NEW: `/devkit:split-pr` — split large PRs into smaller dependency-aware PRs
+
+Direct follow-up to v1.5.3. When pr-review:post-review detects an oversized
+PR, it now recommends splitting — and this command does the splitting.
+
+#### Two modes (Mode 3 deferred to v1.7.0)
+
+```
+SUGGEST (default)
+  Analysis only — no side effects.
+  Outputs:
+    • Per-bucket file list with auto-derived names
+    • Cross-bucket dependency graph (from import statements)
+    • Merge order via topological sort (tiers — parallel vs stacked)
+    • Reviewable shell script at /tmp/split-<pr>-script.sh
+    • Draft PR descriptions at /tmp/split-<pr>-prs/<id>.md
+
+DRAFT (--draft)
+  Runs SUGGEST first, then EXECUTES the script:
+    • Creates N branches in the split/<pr>/ namespace
+    • Stacked-on bases for buckets with deps
+    • All branches local by default; --push to push to origin
+  Does NOT open PRs. That's manual via gh pr create (commands provided).
+
+Mode 3 (auto-open PRs):
+  Deferred to v1.7.0. Once you've validated DRAFT mode on a real PR,
+  Mode 3 layers on top mechanically.
+```
+
+#### Dependency-aware bucketing
+
+```
+Pipeline:
+  1. Path-based bucketing (same as pr-review:post-review v1.5.3)
+  2. Parse import / require statements in each in-PR file
+  3. Build a directed graph: file → [files it imports from]
+  4. Compute cross-bucket edges
+  5. Refine:
+     • Tightly-coupled buckets (>5 mutual edges) → MERGE
+     • Oversized buckets (>25 files) → SPLIT along dep cliques
+     • Tests group by directory by default; --include-tests-with-source
+       pairs each test with its source file's bucket
+  6. Topological sort → merge-order tiers
+```
+
+#### Path-alias resolution
+
+```
+Resolves @aliased/imports/* via tsconfig.json's compilerOptions.paths.
+Falls back to babel.config.js's babel-plugin-module-resolver aliases.
+External package imports (e.g., 'react-native') are ignored — they're
+stable and create no cross-bucket coupling.
+```
+
+#### Honest limitations documented
+
+```
+⚠️ Static imports only — misses runtime / dynamic / codegen deps
+⚠️ Commit history is squashed per bucket (one commit per branch)
+   --preserve-commits is a v2 candidate
+⚠️ Shared files end up in ONE bucket (the most-importing one);
+   other buckets become stacked on that one
+⚠️ Cycle detection: surfaces a warning, merges cycle members into
+   one bucket as a fallback
+⚠️ Conflict handling is manual once upstream PRs land
+⚠️ Tool DOES NOT replace careful authoring — best splits come from
+   writing smaller PRs in the first place. This is a recovery tool.
+```
+
+#### Safety
+
+```
+✅ NEVER touches the original PR's branch
+✅ NEVER force-pushes
+✅ Verifies working tree is clean before any changes
+✅ All new branches in split/<pr>/* namespace for easy cleanup
+✅ Confirmation prompt before any branch creation in --draft mode
+✅ Rollback command always printed in the summary:
+     git branch -D $(git branch | grep '^split/<num>/')
+```
+
+#### Composability
+
+```
+• pr-review:post-review Phase A.6 detects oversized PR → recommends
+  this command
+• After split-pr --draft creates branches, run pr-review:post-review
+  on each smaller PR to get clean reviews
+• Original PR can be closed once all splits are open (manual)
+```
+
+---
+
 ## v1.5.3 (2026-05-20)
 
 ### `/devkit:pr-review:post-review` — oversized PR handling
