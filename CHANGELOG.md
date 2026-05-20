@@ -1,5 +1,96 @@
 # Changelog
 
+## v1.5.3 (2026-05-20)
+
+### `/devkit:pr-review:post-review` — oversized PR handling
+
+Triggered by a real-world run on practo/provider-app#471 — 143 files,
+~1.38M chars of patches. The agent context window couldn't hold it,
+producing zero useful signal. v1.5.3 adds explicit handling for
+oversized PRs: detect, suggest split, offer chunked execution as an
+escape hatch.
+
+#### Phase A.6 — Size detection + split suggestion (PRIMARY)
+
+```
+Default thresholds:
+  >30 files  OR  >150,000 patch chars
+
+When triggered:
+  • Files are bucketed by top-level path with smart sub-grouping
+    (tests/mocks/docs go into their own buckets)
+  • Small buckets (<5 files) get merged into "_misc"
+  • Cap at 6 suggested buckets total
+  • User sees: "Suggested split into N smaller PRs" with concrete
+    file examples per bucket
+  • User chooses:
+      (a) Cancel — split into smaller PRs (recommended, default)
+      (b) Review in chunks — let tool handle it
+      (c) Force full review — likely poor signal
+
+With --bulk-confirm: defaults to "cancel" — silently posting a
+degraded review on an oversized PR is the worst default.
+```
+
+#### Phase A.7 — Chunked execution (ESCAPE HATCH)
+
+```
+When user chooses "chunked":
+  • Run the agent once per bucket
+  • Each agent call gets the FULL PR context (description, existing
+    comments, prior devkit comments) but only that bucket's files
+    in the diff section
+  • Aggregate findings across all buckets
+  • De-dup at (path, line) — same anchor → keep first finding
+  • Merge patterns across buckets (same issue text → combined files
+    list)
+  • Post as a SINGLE review with all bucket findings
+
+Trade-offs surfaced in the preview:
+  ⚠️ Cross-bucket pattern detection is approximate
+  ⚠️ Costs N× a normal review (one agent call per bucket)
+  ⚠️ Agent cannot reason about cross-bucket coupling
+```
+
+#### New flags
+
+```
+--max-files=<N>   Override the default 30-file threshold
+--chunked          Skip the size prompt; force chunked execution
+                   (useful for scripting against known-large PRs)
+```
+
+#### What this does NOT do
+
+```
+❌ Doesn't AUTO-chunk silently. The split-into-smaller-PRs option is
+   strongly recommended and is the default for --bulk-confirm.
+❌ Doesn't try to be smart about which files belong together — the
+   bucketing is simple top-level path grouping. Good enough for
+   actionable suggestions; not perfect.
+❌ Doesn't pre-emptively suggest commit boundaries — that's for
+   /devkit:split-pr (future command, not in this release).
+```
+
+#### Trade-offs documented
+
+```
+• Chunked mode loses some cross-bucket signal:
+    - A pattern that appears once per bucket but is repeated across
+      buckets may not get flagged as a pattern
+    - Coupling between files in different buckets is invisible to
+      the agent (it only sees one bucket at a time)
+  These are honest limitations of chunking. Splitting the PR is
+  always the better path.
+
+• Threshold defaults (30 files, 150k chars) are heuristic. Power
+  users can tune via --max-files=N. Threshold based on observed
+  behavior: PR #470 (20 files, ~150k chars) worked fine; PR #471
+  (143 files, ~1.38M chars) crashed the agent.
+```
+
+---
+
 ## v1.5.2 (2026-05-20)
 
 ### `/devkit:pr-review:post-review` — re-run handling + confidence cue

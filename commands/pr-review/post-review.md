@@ -28,6 +28,11 @@ Supported flags:
 - `--bulk-confirm` — skip the preview, post immediately
 - `--depth=<quick|thorough>` — accepted for compat but ignored here (no prose
   brief is generated; the inline comments ARE the review)
+- `--max-files=<N>` (v1.5.3) — override the default 30-file threshold
+  for "this PR is too large" detection. Above this, the tool prompts
+  for split-and-cancel / chunked / force.
+- `--chunked` (v1.5.3) — skip the size prompt and force chunked
+  execution. Useful when you already know the PR is large.
 
 ## Execute
 
@@ -150,6 +155,164 @@ If `PRIOR_COUNT == 0`, skip this section entirely. `RUN_MODE = "fresh"`.
 **Soft-cap behavior with --bulk-confirm:**
 If `--bulk-confirm` is set, skip the prompt. Default to `RUN_MODE = "delta"`
 when a prior review exists (don't surprise users with duplicates).
+
+### Phase A.6 — Size detection + split suggestion (v1.5.3)
+
+After filtering and prior-review handling, check the PR size. Massive PRs
+blow the agent's context window and produce poor signal — but the right
+fix is usually for the AUTHOR to split the PR, not for the reviewer tool
+to silently truncate.
+
+```bash
+TOTAL_FILES=$(jq 'length' /tmp/pr-files-filtered.json)
+TOTAL_PATCH_CHARS=$(jq '[.[] | (.patch // "") | length] | add' /tmp/pr-files-filtered.json)
+```
+
+**Threshold check** — flag the PR as "too large" if:
+
+```
+TOTAL_FILES > 30  OR  TOTAL_PATCH_CHARS > 150000
+```
+
+(Override via `--max-files=N` flag if user wants different thresholds.)
+
+If under threshold: skip this phase entirely. Continue to Phase B.
+
+If over threshold:
+
+**1. Bucket the files into logical groups** (simple heuristic — group by
+top-level path, merge small groups, cap at 6 suggested buckets):
+
+```python
+def bucket_files(files):
+    """Returns [{bucket_name, files: [...], rationale}]."""
+    from collections import defaultdict
+
+    # Group by first 2 path segments
+    groups = defaultdict(list)
+    for f in files:
+        parts = f['filename'].split('/')
+        # Smart grouping: tests separately, mocks separately, etc.
+        if '__tests__' in parts or '__mocks__' in parts:
+            key = '/'.join(parts[:parts.index(
+                '__tests__' if '__tests__' in parts else '__mocks__'
+            )]) + '/_test-infra'
+        elif parts[0] in ('specs', 'docs'):
+            key = parts[0] + '/_documentation'
+        else:
+            key = '/'.join(parts[:min(2, len(parts) - 1)])
+        groups[key].append(f)
+
+    # Merge groups < 5 files into nearest sibling
+    buckets = []
+    small = []
+    for key, fs in groups.items():
+        if len(fs) >= 5:
+            buckets.append({'name': key, 'files': fs})
+        else:
+            small.extend(fs)
+    if small:
+        buckets.append({'name': '_misc', 'files': small})
+
+    # Cap at 6 buckets; merge smallest excess into '_misc'
+    if len(buckets) > 6:
+        buckets.sort(key=lambda b: len(b['files']), reverse=True)
+        misc = next((b for b in buckets if b['name'] == '_misc'), None)
+        if not misc:
+            misc = {'name': '_misc', 'files': []}
+            buckets.append(misc)
+        for b in buckets[6:]:
+            if b is not misc:
+                misc['files'].extend(b['files'])
+        buckets = [b for b in buckets[:6] if b is not misc] + [misc]
+
+    return buckets
+```
+
+**2. Display the buckets to the user via AskUserQuestion:**
+
+```
+This PR is large enough to hurt review quality:
+  • <TOTAL_FILES> files (threshold: 30)
+  • <TOTAL_PATCH_CHARS> patch chars (threshold: 150,000)
+  • Estimated agent context: ~<chars/4> tokens
+
+Suggested split into <N> smaller PRs:
+
+  Bucket A — <bucket_name>  (<N> files)
+    Examples: <first 3 filenames>...
+  
+  Bucket B — <bucket_name>  (<N> files)
+    Examples: <first 3 filenames>...
+  
+  ...
+
+Smaller PRs review faster and produce better feedback. What do you want?
+
+  question: "How do you want to handle this oversized PR?"
+  header: "PR size"
+  multiSelect: false
+  options:
+    - label: "Cancel — I'll split this PR into smaller ones (recommended)"
+      description: "Stop here. Use the bucket suggestions above as a
+                    starting point. Each smaller PR can then be reviewed
+                    cleanly with /devkit:pr-review."
+    - label: "Review in chunks — let the tool handle it"
+      description: "Run the agent once per bucket. Aggregate findings,
+                    dedup, post as a single review. Slower (multiple
+                    agent calls) and may miss cross-bucket patterns.
+                    Use only if you can't split the PR."
+    - label: "Force full review — single agent call (likely poor signal)"
+      description: "Pass everything to one agent invocation. Context
+                    window may be exceeded; the agent may truncate or
+                    produce garbage. Not recommended."
+```
+
+**3. Set CHUNKING_MODE based on the answer:**
+- `"cancel"` → halt cleanly, no API calls made
+- `"chunked"` → proceed to Phase A.7 (chunked execution)
+- `"force"` → proceed to normal Phase B (single-pass review)
+
+**With `--bulk-confirm`:** skip the prompt. Default to `"cancel"` —
+silently posting a degraded review on an oversized PR is the worst
+default. User must explicitly opt into chunked or force mode.
+
+### Phase A.7 — Chunked execution (v1.5.3, only when CHUNKING_MODE == "chunked")
+
+For each bucket from Phase A.6:
+
+1. Build a position map ONLY for the files in this bucket (Phase B,
+   scoped)
+2. Build the agent prompt ONLY with this bucket's files in the DIFF
+   section (Phase C, scoped). PR description, existing comments, and
+   prior devkit comments stay full-context.
+3. Run the agent. Get JSON output.
+4. Validate + length-cap + map-to-line (Phase D, per-bucket)
+5. Append the bucket's surviving findings to a master list
+
+After all buckets processed:
+
+6. **De-dup across buckets** at `(path, line)`:
+   - Same anchor → keep the first finding, drop later duplicates
+   - Track `dropped_cross_bucket_dup` count
+7. **Merge patterns across buckets**:
+   - Same `issue` text from different buckets → combine files lists
+   - Same file appearing in multiple patterns → keep all (the patterns
+     are distinct issues)
+8. Continue to Phase E (preview) and Phase F (post) with the merged
+   findings — only ONE review gets posted, containing all bucket
+   findings.
+
+**Trade-offs of chunked mode** (surfaced in the preview):
+```
+⚠️ Chunked review mode used:
+   • Cross-bucket pattern detection is approximate — a pattern that
+     only appears once per bucket but is repeated across buckets may
+     not be flagged as a pattern.
+   • Findings cost N× a normal review (one agent call per bucket).
+   • Agent cannot reason about cross-bucket coupling (e.g., "this
+     file changes assume the type defined in another bucket").
+```
 
 ### Phase B — Build line → diff-position map
 
@@ -677,6 +840,11 @@ Review URL: https://github.com/<owner>/<repo>/pull/<num>#pullrequestreview-<id>
 | Prior devkit review exists + user picks "cancel" | Halt cleanly. No state change. |
 | Prior devkit review exists + --bulk-confirm set | Default to "delta" mode (safer than silently re-posting duplicates) |
 | Low-confidence cue on many comments | Still posted by default. User can decide in preview. Cue is informational. |
+| PR over size threshold (>30 files or >150k chars) | Phase A.6 fires: suggest split, offer chunked or force modes |
+| Chunked mode used | Cross-bucket pattern detection is approximate. Multiple agent calls. Surface this in the preview. |
+| Single bucket only (one chunk worth) | Treated as a regular run — no chunking overhead |
+| --max-files=N override | User can raise/lower the threshold per invocation |
+| --chunked flag set | Skip the size prompt entirely; force chunked execution |
 
 ## Guardrails
 
@@ -702,6 +870,14 @@ Review URL: https://github.com/<owner>/<repo>/pull/<num>#pullrequestreview-<id>
 - NEVER auto-resolve prior devkit comments. That's the author's call.
 - ALWAYS attach a confidence cue to each comment in the preview — the
   user decides whether to keep low-confidence ones
+- ALWAYS detect oversized PRs (Phase A.6) before running the agent —
+  silently posting degraded review on a 100+ file PR is worse than
+  honest "this PR is too big" guidance
+- NEVER auto-run chunked mode without user opt-in. The split-into-
+  smaller-PRs path is the strongly preferred recommendation.
+- IN CHUNKED MODE: surface the trade-offs (cross-bucket patterns
+  approximate, multiple agent calls) in the preview so users know
+  what they're getting
 - NEVER chain retries beyond ONE attempt after rejection
 - NEVER comment on excluded paths (lock files, generated, vendored)
 
