@@ -1,6 +1,6 @@
 ---
-description: Analyze a large PR and split it into smaller, dependency-aware PRs. SUGGEST mode produces an actionable plan; DRAFT mode creates the branches locally. Doesn't open PRs (Mode 3 deferred).
-argument-hint: <PR url, PR number, or branch name> [--draft] [--max-files=N] [--base=<branch>]
+description: Analyze a large PR and split it into smaller, dependency-aware PRs. SUGGEST plans, DRAFT creates branches, EXECUTE also opens PRs.
+argument-hint: <PR url, PR number, or branch name> [--draft | --execute] [--max-files=N] [--base=<branch>]
 model: opus
 ---
 
@@ -10,14 +10,14 @@ Large PRs are slow to review and easy to merge with bugs. This command
 analyzes a PR, identifies logical groupings, computes import-based
 dependencies between them, and produces a concrete split plan.
 
-Two modes:
+Three modes:
 - **SUGGEST (default)** — analysis only. Outputs a split plan, a
   reviewable shell script, and draft PR descriptions. No side effects.
 - **DRAFT (`--draft`)** — runs SUGGEST first, then creates the actual
   git branches locally (one per bucket). Does NOT open PRs.
-
-Mode 3 (auto-open PRs) is deferred. Once you have the draft branches,
-opening PRs is a `gh pr create` away.
+- **EXECUTE (`--execute`)** — runs SUGGEST + DRAFT, then opens GitHub
+  PRs for each branch in dependency tier order. Each PR uses the
+  draft description from Phase F. Stacked PRs get the right `--base`.
 
 **Response format:** one short sentence on what was done, the next
 concrete action, terse.
@@ -42,11 +42,16 @@ options:
                   Output a split plan + a reviewable shell script you
                   can run yourself. Zero side effects. Recommended
                   first run."
-  - label: "Draft splits (create branches locally)"
+  - label: "Draft splits (create branches locally, no PRs)"
     description: "Run the analysis, then create N git branches locally
                   — one per bucket. Does NOT open PRs. You can review
                   each branch and open PRs manually via gh pr create
                   when ready."
+  - label: "Execute splits (create branches AND open PRs)"
+    description: "Run analysis + create branches + open GitHub PRs in
+                  dependency tier order. Stacked PRs get the right
+                  base. Closes the original PR as a draft (manual final
+                  close). Multiple confirmations along the way."
   - label: "Show verbose help"
     description: "Print the full flag reference and edge-case behavior."
 ```
@@ -57,6 +62,7 @@ name — e.g. 471 or feat/CAT-494-foo)"`.
 Map the choice + PR to:
 - Suggest → `/devkit:split-pr <PR>`
 - Draft   → `/devkit:split-pr <PR> --draft`
+- Execute → `/devkit:split-pr <PR> --execute`
 - Help    → print the verbose section below + STOP
 
 ### Skip the front door
@@ -72,13 +78,17 @@ or branch name (`gh pr list --head <branch>`).
 
 Flags:
 - `--draft` — create the branches locally after analysis (Mode 2)
+- `--execute` — create the branches AND open GitHub PRs (Mode 3, v1.6.1)
 - `--max-files=<N>` — override the per-bucket cap (default 25 files)
 - `--base=<branch>` — base branch for the new splits
   (default: the original PR's base branch)
 - `--include-tests-with-source` — pair test files with their source
   file's bucket (default: tests group together by directory)
-- `--push` — push the new branches to origin after creating
-  (DRAFT mode only)
+- `--push` — push branches to origin after creating (DRAFT mode only;
+  EXECUTE mode pushes by default since PRs need remote branches)
+- `--close-original` — when in EXECUTE mode, also close the original
+  PR after opening the splits. Default: leave open as draft for the
+  author to close manually.
 
 (Empty `$ARGUMENTS` is handled by the picker above.)
 
@@ -123,11 +133,57 @@ Lock files and generated files are NOT split — they stay in their
 "natural" bucket (typically root or the package that owns them) and
 get pulled into whichever bucket touches them most.
 
-## Phase B — Build the import dependency graph
+## Phase B — Build the import dependency graph (multi-language, v1.6.1)
 
-For each in-PR file, parse `import` / `require` statements and resolve
-each one to a file path. Build an adjacency map:
+For each in-PR file, parse imports and resolve them to other files in
+the PR. Build an adjacency map:
 `{ file_a: [file_b, file_c, ...] }` — meaning A depends on B and C.
+
+### Language detection + adapter routing
+
+```python
+LANGUAGE_BY_EXT = {
+    'ts': 'typescript', 'tsx': 'typescript',
+    'js': 'javascript', 'jsx': 'javascript', 'mjs': 'javascript',
+    'py': 'python',
+    'kt': 'kotlin', 'kts': 'kotlin',
+    'java': 'java',
+    'swift': 'swift',
+    'go': 'go',
+}
+
+def detect_language(filename):
+    ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+    return LANGUAGE_BY_EXT.get(ext)
+```
+
+**Per-PR language summary** — at the start of Phase B, compute:
+
+```python
+lang_counts = {}
+for f in pr_files:
+    lang = detect_language(f['filename']) or '(other)'
+    lang_counts[lang] = lang_counts.get(lang, 0) + 1
+```
+
+Print to user: `Language detected: typescript (143), other (3)`.
+
+Then route each file through its language adapter:
+
+| Language     | Adapter                | Fidelity                         |
+|--------------|------------------------|----------------------------------|
+| TypeScript / JS | `parse_ts_imports`  | HIGH — imports → exact files     |
+| Python       | `parse_py_imports`     | HIGH — imports → exact files     |
+| Kotlin / Java | `parse_kotlin_imports` | MEDIUM — imports → packages, need to find file defining the class |
+| Swift        | `parse_swift_imports`  | LOW — imports are module-level; file-to-file deps invisible. Falls back to path affinity. |
+| Go           | `parse_go_imports`     | MEDIUM — imports → packages      |
+| (other)      | no adapter             | empty deps; bucketing falls back to path-only with explicit warning |
+
+If a PR has files in MULTIPLE languages, each file uses its own adapter.
+A TS file's deps and a Kotlin file's deps both feed into the same graph,
+just at different fidelities.
+
+### TypeScript / JavaScript adapter (HIGH fidelity)
 
 ```python
 def build_import_graph(pr_files, tsconfig_paths, package_root):
@@ -218,10 +274,271 @@ jq '.compilerOptions.paths // {}' tsconfig.json > /tmp/ts-paths.json
 If no tsconfig, fall back to checking `babel.config.js` for
 `babel-plugin-module-resolver` aliases.
 
+### Kotlin / Java adapter (MEDIUM fidelity, v1.6.1)
+
+Kotlin / Java imports are PACKAGE-level — `import com.example.Foo`
+points to a package containing class `Foo`. A single file can contain
+multiple classes, and a package can span multiple files. To resolve
+an import to a specific file, we need to find the file that DEFINES
+the imported class.
+
+```python
+def parse_kotlin_imports(content, importing_file, pr_files_set, file_contents):
+    """
+    Returns list of in-PR files this file depends on.
+
+    Strategy:
+      1. Extract all `import com.x.y.Foo` statements
+      2. For each: package = "com.x.y", class = "Foo"
+      3. Find files in pr_files_set whose `package` declaration matches
+         AND whose content defines a class/object/fun/interface named Foo
+    """
+    import re
+    deps = []
+    for m in re.finditer(
+        r'^\s*import\s+([\w.]+)(?:\s+as\s+\w+)?\s*$',
+        content, re.MULTILINE
+    ):
+        full = m.group(1)
+        # Skip wildcard or kotlin/java stdlib imports
+        if full.endswith('.*') or full.startswith(('kotlin.', 'java.', 'javax.', 'android.')):
+            continue
+        parts = full.split('.')
+        if len(parts) < 2:
+            continue
+        package = '.'.join(parts[:-1])
+        class_name = parts[-1]
+
+        # Search PR files for this package + class definition
+        for pr_file in pr_files_set:
+            if not pr_file.endswith(('.kt', '.kts', '.java')):
+                continue
+            file_content = file_contents.get(pr_file)
+            if not file_content:
+                continue
+            # Check package declaration
+            if not re.search(
+                rf'^\s*package\s+{re.escape(package)}\s*[;]?\s*$',
+                file_content, re.MULTILINE
+            ):
+                continue
+            # Check the class/interface/object/fun is defined
+            if re.search(
+                rf'\b(class|interface|object|fun|val|var)\s+{re.escape(class_name)}\b',
+                file_content
+            ):
+                deps.append(pr_file)
+                break
+    return deps
+```
+
+**Caveats:**
+- Package wildcard imports (`import com.x.y.*`) are SKIPPED — too
+  fuzzy to resolve precisely
+- If the same class name exists in multiple in-PR files in different
+  packages, only the package-matching one is picked (correct)
+- Same package, multiple files: matches the first one defining the
+  class. If two files in the same package both export a `class Foo`,
+  the resolution is approximate
+- Stdlib imports (kotlin.*, java.*, android.*, javax.*) skipped — not
+  in-PR files
+- Project-internal imports that point OUTSIDE the PR are skipped
+  naturally (no matching file in `pr_files_set`)
+
+### Swift adapter (LOW fidelity, v1.6.1)
+
+Swift imports are MODULE-level (`import UIKit`, `import OurModule`).
+Within a single module, files reference each other WITHOUT imports —
+they're all visible to each other. This means file-to-file deps within
+a module are INVISIBLE to import analysis.
+
+```python
+def parse_swift_imports(content, importing_file, pr_files_set, file_contents):
+    """
+    Returns: list of in-PR files this file depends on (empty in v1.6.1).
+
+    Honest limitation: Swift imports are module-level. We cannot
+    determine file-to-file dependencies within a module by parsing
+    imports alone — they would require class-usage analysis (scan
+    every Type name in the file, cross-reference against type
+    declarations in other files).
+
+    For v1.6.1: return empty. Bucketing falls back to path-based
+    affinity. A warning is printed in the SUGGEST output:
+
+      "ℹ️  Swift detected. Dep graph not computed — Swift imports are
+           module-level. Splits based on file paths only."
+
+    For higher fidelity in future: implement Swift type-usage
+    analysis (v1.7.0 candidate). Scans for class/struct/enum/protocol
+    declarations across all PR files, builds a name → file index,
+    then scans each file for usages of those names.
+    """
+    return []
+```
+
+### Python adapter (HIGH fidelity, v1.6.1)
+
+Python imports map cleanly to files (similar to JS).
+
+```python
+def parse_py_imports(content, importing_file, pr_files_set):
+    """
+    Patterns:
+      from .foo import X        → relative module
+      from .foo.bar import X    → relative submodule
+      from x.y.z import X       → absolute (resolve via project root)
+      import x.y.z              → absolute
+    """
+    import re, os
+    deps = []
+    patterns = [
+        # from .x import y / from x.y import z
+        r'^\s*from\s+([\w.]+)\s+import\s+',
+        # import x.y / import x.y as z
+        r'^\s*import\s+([\w.]+)(?:\s+as\s+\w+)?\s*$',
+    ]
+    importing_dir = os.path.dirname(importing_file)
+    for pat in patterns:
+        for m in re.finditer(pat, content, re.MULTILINE):
+            spec = m.group(1)
+            # Skip stdlib
+            if spec.split('.')[0] in {'sys', 'os', 'json', 're', 'typing', 'collections',
+                                       'itertools', 'functools', 'pathlib', 'datetime'}:
+                continue
+            # Relative: starts with .
+            if spec.startswith('.'):
+                # Count leading dots to determine level
+                level = len(spec) - len(spec.lstrip('.'))
+                rest = spec.lstrip('.').replace('.', '/')
+                parent = importing_dir
+                for _ in range(level - 1):
+                    parent = os.path.dirname(parent)
+                candidate = os.path.join(parent, rest)
+            else:
+                # Absolute — resolve against repo root
+                candidate = spec.replace('.', '/')
+            # Try .py first, then __init__.py inside a dir
+            for ext in ('.py',):
+                if (candidate + ext) in pr_files_set:
+                    deps.append(candidate + ext)
+                    break
+                init = os.path.join(candidate, '__init__.py')
+                if init in pr_files_set:
+                    deps.append(init)
+                    break
+    return deps
+```
+
+### Go adapter (MEDIUM fidelity, v1.6.1)
+
+Go imports are package-level (path-based, unlike Kotlin). Resolution
+maps the import path to the directory containing the package's .go
+files.
+
+```python
+def parse_go_imports(content, importing_file, pr_files_set, module_path):
+    """
+    Go imports look like:
+      import "github.com/org/repo/pkg/subpkg"
+      import "./relative"  (rare)
+
+    Resolve by stripping the module prefix and checking if any in-PR
+    .go file lives under that path.
+    """
+    import re
+    deps = []
+    for m in re.finditer(r'import\s+(?:[\w.]+\s+)?"([^"]+)"', content):
+        spec = m.group(1)
+        if not spec.startswith(module_path):
+            continue  # external
+        relative = spec[len(module_path):].lstrip('/')
+        for pr_file in pr_files_set:
+            if pr_file.startswith(relative + '/') and pr_file.endswith('.go'):
+                deps.append(pr_file)
+    return deps
+```
+
+### Fallback for unsupported languages
+
+If a file's language is not in `LANGUAGE_BY_EXT` or has no adapter:
+- Return empty deps list (no edges in the graph for this file)
+- Log to the SUGGEST output:
+  ```
+  ℹ️  <N> files in <language>: dep graph not computed; bucketed by path only
+  ```
+
+### File-content fetching
+
+For Kotlin / Swift / Python deps, we need each file's content. Three options:
+
+```python
+def fetch_file_contents(pr_files, head_sha, repo_owner_name):
+    """Fetch file contents at the PR's head SHA via gh CLI."""
+    contents = {}
+    for f in pr_files:
+        fname = f['filename']
+        # Try local repo first (faster)
+        if os.path.exists(fname):
+            with open(fname) as fp:
+                contents[fname] = fp.read()
+            continue
+        # Fall back to gh api
+        try:
+            blob = subprocess.run(
+                ['gh', 'api',
+                 f'repos/{repo_owner_name}/contents/{fname}?ref={head_sha}',
+                 '--jq', '.content'],
+                capture_output=True, text=True, check=True
+            ).stdout.strip()
+            import base64
+            contents[fname] = base64.b64decode(blob).decode('utf-8', errors='replace')
+        except Exception:
+            contents[fname] = None  # skip silently
+    return contents
+```
+
+Note: gh api per-file is SLOW for large PRs (~0.5s/file = 1+ min for 143 files).
+For Phase B in non-TS languages, this is the cost of accurate dep
+analysis. To skip, the user can rely on path-based bucketing alone.
+
 ## Phase C — Bucket files (dependency-aware refinement)
 
-Start with the v1.5.3 path-based bucketing (already proven). Then
-refine using the import graph:
+Start with semantic path-based bucketing (refined in v1.6.1 to catch
+common mis-categorizations), then refine using the import graph.
+
+**Improved heuristic categories (v1.6.1):**
+
+```
+test-infrastructure  — fixtures, makers, setup.ts, __tests__/utils
+test-mocks           — __mocks__/* files
+test-config          — jest.config.js, babel.config.js, tsconfig.json
+documentation        — *.md, specs/*, docs/*
+
+per-layer-tests by feature:
+  tests/hooks                  — */hooks/__tests__/*
+  tests/media-hooks            — */hooks/media/*/__tests__/*
+  tests/<feature>-containers   — */containers/<feature>/__tests__/*
+  tests/<feature>-slices       — */store/<feature>Store/__tests__/*
+  tests/<feature>-api          — */api/<feature>Api/__tests__/*
+  tests/database               — */database/__tests__/*
+
+per-layer source (NOT test files):
+  source/hooks                 — */hooks/*  (not in __tests__)
+  source/containers            — */containers/*
+  source/store                 — */store/*
+  source/api                   — */api/*
+  source/components            — */components/*
+  source/screens               — */screens/*
+  source/database              — */database/*
+
+misc                  — anything that doesn't match above
+                        IMPORTANT: source files MUST never land here.
+                        If a source file would, expand the category
+                        list and re-categorize.
+```
+
+**Refinement steps using the import graph:**
 
 ```python
 def bucket_files_with_deps(files, graph, max_files=25):
@@ -455,7 +772,9 @@ This PR was created as part of an automated split of #<num> via
 
 ### Mode 1 — SUGGEST (default)
 
-Run Phases A → F. Output to terminal:
+Run Phases A → F. Output to terminal in two sections:
+
+**Section 1 — Summary table** (high-level view):
 
 ```
 ═══════════════════════════════════════════════════════════════
@@ -463,31 +782,48 @@ Run Phases A → F. Output to terminal:
    <total_files> files across <total_buckets> buckets
 ═══════════════════════════════════════════════════════════════
 
-Bucket A — <name>                  (<N> files, 0 deps)
-  → Can merge first (Tier 1, parallel)
-  Examples: <first 3 files>
-
-Bucket B — <name>                  (<N> files, deps: A)
-  → Merges after A (Tier 2)
-  Examples: ...
-
+Bucket A — <name>                  (<N> files, deps: ...)
+Bucket B — <name>                  (<N> files, deps: ...)
 ...
 
 Merge order:
   Tier 1 (parallel):  A, D, E
   Tier 2 (after T1):  B (→A), F (→E)
   Tier 3 (after T2):  C (→B)
+```
 
+**Section 2 — Per-bucket file lists** (v1.6.1 — show ALL files, grouped
+by common path prefix for readability):
+
+```
+═══ Bucket A — <name>  (<N> files, deps: ...) ═══
+  packages/editors/src/hooks/
+    __tests__/useAnimatedDots.test.ts
+    __tests__/useAppNavigation.test.ts
+    ... (all files listed, not truncated)
+  packages/editors/src/hooks/media/
+    __tests__/useGalleryData.test.tsx
+    ...
+
+═══ Bucket B — <name>  (<N> files, deps: A) ═══
+  ...
+```
+
+Common path prefix grouping reduces visual noise — files in the same
+directory are listed together under their prefix. The full file list
+is visible (no "+N more" truncation).
+
+**Section 3 — Generated artifacts + next steps:**
+
+```
 Generated files:
   Script:           /tmp/split-<num>-script.sh
   Descriptions:     /tmp/split-<num>-prs/{a,b,c,...}.md
 
 Next steps:
   1. Review the script + descriptions
-  2. Run the script:           bash /tmp/split-<num>-script.sh
-     OR run this command with --draft to do that automatically
-  3. Open PRs in tier order via `gh pr create`
-  4. Close the original PR once all splits are open
+  2. Run with --draft to create branches locally
+  3. Or run with --execute to also open PRs
 ```
 
 STOP. No side effects so far.
@@ -558,6 +894,104 @@ Run Phases A → F (same as SUGGEST), then:
    To clean up if you change your mind:
      git branch -D $(git branch | grep '^split/<num>/')
      <if --push: git push origin --delete <each-branch>>
+   ```
+
+STOP.
+
+### Mode 3 — EXECUTE (`--execute`, v1.6.1)
+
+⚠️ **Write action — opens GitHub PRs.** This mode runs the full pipeline
+and creates PRs. Use after you've validated the SUGGEST output at least
+once on the same PR.
+
+Runs Phases A → F (same as SUGGEST), then DRAFT's branch creation,
+then opens PRs:
+
+1. **Run DRAFT phase (Mode 2)** with `--push` implicitly enabled
+   (PRs need remote branches).
+
+2. **Confirm before opening any PR:**
+
+   ```
+   About to open <N> PRs:
+
+     Tier 1 (parallel — no deps):
+       split/<pr>/a-<slug>  →  base: <original-base>
+       split/<pr>/d-<slug>  →  base: <original-base>
+       split/<pr>/e-<slug>  →  base: <original-base>
+
+     Tier 2 (after Tier 1 PRs are merged):
+       split/<pr>/b-<slug>  →  base: split/<pr>/a-<slug>   (stacked on A)
+       split/<pr>/f-<slug>  →  base: split/<pr>/e-<slug>   (stacked on E)
+
+     Tier 3 (after Tier 2):
+       split/<pr>/c-<slug>  →  base: split/<pr>/b-<slug>   (stacked on B)
+
+   Each PR will:
+     - Use the description from /tmp/split-<pr>-prs/<id>-<slug>.md
+     - Have a generated title: "<bucket name> (split <id>/<N> from #<pr>)"
+     - Be opened as draft OR ready (per --draft-pr flag, default: ready)
+
+   Original PR #<pr> will: <"be marked draft" if --close-original,
+                            else "stay open as is, you close manually">
+
+   Proceed to open PRs? (y / n / cancel)
+   ```
+
+3. **Open PRs in dependency order** — tier 1 first, then tier 2 only
+   if tier 1's PRs were successfully created. For each PR:
+
+   ```bash
+   gh pr create \
+     --base "<base-for-this-bucket>" \
+     --head "split/<pr>/<id>-<slug>" \
+     --body-file "/tmp/split-<pr>-prs/<id>-<slug>.md" \
+     --title "<bucket-name> (split <id>/<N> from #<pr>)"
+   ```
+
+   Capture the new PR URL from `gh pr create` output. Add to summary.
+
+4. **Per-PR safety:**
+   - If ANY `gh pr create` call fails:
+     - Stop. Don't continue to later tiers.
+     - Print the error + already-opened PR URLs
+     - Branches are still on disk; user can fix and retry manually
+
+5. **Optional original-PR closure** (if `--close-original`):
+   - After all PRs successfully open
+   - Convert original PR to draft via `gh pr ready <num> --undo`
+   - Add a comment on the original linking all the new splits
+   - Do NOT close the PR via `gh pr close` — the user might want to
+     verify the splits first, then close manually
+
+6. **Final summary:**
+
+   ```
+   ✅ Created <N> branches + opened <N> PRs
+
+   PRs opened (in tier order):
+     • Tier 1:
+         PR #<new1>  https://github.com/.../pull/<new1>  (Bucket A)
+         PR #<new2>  https://github.com/.../pull/<new2>  (Bucket D)
+         ...
+     • Tier 2:
+         PR #<newN>  https://github.com/.../pull/<newN>  (Bucket B, stacked on A)
+         ...
+     • Tier 3: ...
+
+   Original PR #<num> status: <draft / unchanged>
+
+   Next steps:
+     1. Review each new PR — confirm files are right
+     2. Tag reviewers on Tier 1 PRs
+     3. As Tier 1 merges, Tier 2 PRs auto-rebase their bases
+     4. Close PR #<num> once you're satisfied:
+          gh pr close <num> --comment "Split into PRs #<new1>, #<new2>, ..."
+
+   To roll back (delete the new PRs + branches):
+     for n in <new1> <new2> ...; do
+       gh pr close $n --delete-branch
+     done
    ```
 
 STOP.
@@ -639,7 +1073,6 @@ STOP.
 
 ## What this command does NOT do
 
-- Does not open GitHub PRs (Mode 3, deferred to v1.7.0)
 - Does not auto-rebase split branches as upstream PRs land
 - Does not preserve the original commit history per bucket
   (each bucket = one squashed commit). `--preserve-commits` is a
@@ -648,6 +1081,9 @@ STOP.
 - Does not split individual commits — only files. A commit that
   touches files across multiple buckets gets squashed into per-bucket
   commits.
+- Does not close the original PR automatically (even in --execute
+  mode). The author closes it after verifying the splits look right.
+  --close-original flag marks it as draft as a partial step.
 
 ## Composability
 

@@ -1,5 +1,143 @@
 # Changelog
 
+## v1.6.1 (2026-05-20)
+
+### `/devkit:split-pr` — Mode 3 (EXECUTE), multi-language deps, full file lists
+
+Follow-up to v1.6.0 after running it on PR #471 (CAT-494, 143 files) and
+hitting three real gaps. v1.6.1 closes them.
+
+> ⚠️ **Validation status — read before relying on v1.6.1:**
+>
+> Only the TS/JS + GitHub pipeline has been run on a real PR (#471).
+> Everything new in v1.6.1 is **spec-only** and ships unvalidated:
+>
+> - **Mode 3 (`--execute`)** — the stacked `gh pr create` loop has
+>   never run. First real use is beta testing.
+> - **Kotlin / Java / Python / Go adapters** — regexes are best-effort.
+>   Edge cases (typealiases, top-level fns, inline classes, generics
+>   in signatures, namespace packages) are not validated.
+> - **Swift adapter** — explicitly low-fidelity stub. Returns empty
+>   deps; bucketing falls back to path affinity.
+> - **Bucketing fixes** — new categorize_file rules were not re-run
+>   against PR #471 to confirm fixtures and source files now land
+>   in the right buckets.
+>
+> File issues when you hit edge cases. Treat Mode 3 and non-TS
+> adapters as preview-quality until validated in the wild.
+
+#### NEW: Mode 3 — `--execute` (auto-open PRs)
+
+```
+SUGGEST (default)   →   analysis only, /tmp artifacts, zero side effects
+DRAFT (--draft)     →   create N branches locally (was already in 1.6.0)
+EXECUTE (--execute) →   create branches AND open PRs in tier order
+
+Mode 3 picker option added. With --execute:
+  1. Confirms with the user once, showing all N PR titles + tiers
+  2. Creates branches via the same script as DRAFT
+  3. Pushes each branch to origin
+  4. Opens PRs in tier order via gh pr create
+     - Tier 1 PRs: --base <original base>
+     - Tier 2+ PRs: --base <previous tier's branch> (STACKED)
+  5. Prints final summary with PR URLs and rollback hint
+
+  Optional: --close-original prints the close command but does NOT
+  run it (still manual — closing requires a confirmation review
+  the tool shouldn't make for you).
+```
+
+#### FIX: Bucketing heuristic — fixtures, setup, source files
+
+Two real bugs spotted on PR #471's run:
+
+```
+v1.6.0 problem                       v1.6.1 behavior
+─────────────────────────────────────────────────────────────────
+test fixtures + setup.ts             test-infrastructure bucket
+  → landed in "test" mixed bucket      (test buckets stack on it)
+
+source files like                    per-layer source buckets
+useBatchUploadToS3V2.ts                (hooks, media-hooks,
+  → landed in "misc"                    containers, slices, api, db)
+
+                                     INVARIANT: source files never
+                                     land in misc. If categorize_file
+                                     returns "misc" for a .ts/.tsx,
+                                     escalate via path-prefix
+                                     (hooks/ vs containers/ vs api/).
+```
+
+#### NEW: Multi-language import graph (Phase B)
+
+Added language detection + per-language adapter routing. Files that
+aren't TS/JS no longer fall into a silent empty graph — they're
+either parsed by an adapter or get an explicit "skipped" warning.
+
+```
+Language     Adapter                Fidelity                      Status
+────────────────────────────────────────────────────────────────────────
+TS / JS      parse_ts_imports       HIGH (imports → files)        ✓ 1.6.0
+Python       parse_py_imports       HIGH (imports → files)        ✓ NEW
+Kotlin/Java  parse_kotlin_imports   MED (imports → packages,     ✓ NEW
+                                       resolved to defining file)
+Go           parse_go_imports       MED (imports → packages)      ✓ NEW
+Swift        parse_swift_imports    LOW (module-level only;       ✓ NEW
+                                       returns empty, falls back     (honest
+                                       to path affinity)             stub)
+other        none                   no graph; path-only          ✓ NEW
+                                                                    (explicit
+                                                                    warning)
+```
+
+**Kotlin adapter** parses `import com.x.y.Foo`, finds the in-PR file
+whose `package` declaration matches AND defines `class/object/fun
+Foo`. Skips wildcard imports (`com.x.y.*`) and stdlib
+(kotlin./java./android./javax.).
+
+**Swift adapter** acknowledges that Swift imports are module-level
+only — file-to-file deps within a module are invisible to imports.
+Returns empty deps. The SUGGEST output explains this so users know
+the dep graph wasn't computed (not silently empty).
+
+**Python and Go adapters** added with high/medium fidelity
+respectively.
+
+**Per-PR language summary** printed at the start of Phase B:
+`Language detected: kotlin (94), java (12), other (3)`.
+
+#### IMPROVEMENT: SUGGEST output shows full file lists
+
+v1.6.0 truncated to "Examples: <3 files> + N more". Users couldn't
+review what's actually in each bucket without re-grepping the JSON.
+
+v1.6.1 prints the full file list per bucket, grouped by common
+path prefix to keep it scannable:
+
+```
+Bucket B — establishment-slices (12 files, deps: A)
+  packages/establishment/src/store/aboutFlow/
+    estAboutSlice.ts
+    estAddressSlice.ts
+    estLogoSlice.ts
+    estContactSlice.ts
+  packages/establishment/src/store/specialitiesFlow/
+    estSpecialitiesSlice.ts
+    estServicesSlice.ts
+    ...
+```
+
+#### NOTES
+
+- GitHub remains the only supported git host. GitLab / Bitbucket
+  return an error (documented).
+- Kotlin / Swift file-content fetching uses `gh api` per file
+  (~0.5s each). For 100+ file Kotlin PRs, Phase B is slower than
+  TS PRs. Users can rely on path-only bucketing if they want to
+  skip the dep graph.
+
+---
+
 ## v1.6.0 (2026-05-20)
 
 ### NEW: `/devkit:split-pr` — split large PRs into smaller dependency-aware PRs
