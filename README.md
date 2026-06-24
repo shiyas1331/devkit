@@ -176,7 +176,11 @@ Automatically instruments your code with trace logs, captures output from connec
 
 ### `/devkit:cover` — Automated unit test generation
 
-Discovers untested source files in a package, classifies each (slice/thunk/hook/service/container), and writes co-located tests using platform-specific templates. Runs jest after each, retries failures, and surfaces latent bugs found while reading the source. Platform-aware — react-native today; react/android/ios/node/java adapters slot in as drop-in folders under `platforms/`.
+Discovers untested source files in a package, classifies each, and writes tests using platform-specific templates. Runs jest after each, retries failures, and surfaces latent bugs found while reading the source. Platform-aware:
+- **react-native** — classifies slice/thunk/hook/listener/service/container; writes one co-located test file per source (`__tests__/`).
+- **node** — classifies manager/repository/mapper/service/util/worker; writes one centralized test file per public method (`tests/unit/`), matching the content-service convention.
+
+Further adapters (react/android/ios/java) slot in as drop-in folders under `platforms/` — see `platforms/README.md`.
 
 Grounded in `provider-app/packages/editors` (512 tests / 56 suites + 3 latent bugs flagged). Target: ~67% time savings on subsequent packages vs writing tests by hand.
 

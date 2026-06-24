@@ -22,11 +22,13 @@ You work on ONE source file at a time. The parent command (`/devkit:cover`) spaw
 The parent command passes you (in the prompt):
 
 ```
-PLATFORM=<react-native|...>
+PLATFORM=<react-native|node|...>
 SOURCE_FILE=<absolute path>
-CLASSIFICATION=<slice|thunk|hook-pure|hook-redux|hook-bottomsheet|service|container>
+CLASSIFICATION=<slice|thunk|hook-*|service|container   (react-native)
+              | manager|repository|mapper|service|util|worker   (node)>
 PACKAGE_ROOT=<absolute path to package — for resolving fixtures, mocks, jest>
-EXISTING_FIXTURES=<list of make*.ts files already present>
+TEST_DIR=<empty (react-native, co-located __tests__/) | tests/unit (node, per-method, centralized)>
+EXISTING_FIXTURES=<list of make*.ts files already present, or empty>
 
 TEMPLATE:
 <full content of the matching template inlined here by the parent>
@@ -34,6 +36,10 @@ TEMPLATE:
 CONVENTIONS:
 <full content of the platform conventions.md inlined here by the parent>
 ```
+
+**Output granularity depends on `TEST_DIR`:**
+- **Empty (React Native)** — emit ONE co-located test file `<dir>/__tests__/<basename>.test.ts(x)` for the whole source file. Report it in `test_file`.
+- **Set (node)** — emit **one test file per public method** under `TEST_DIR`, with the path mirroring the source from the layer down and the basename as a directory (conventions §2). Report all of them in `test_files`.
 
 **No file paths to the devkit plugin are passed in.** The parent command reads
 the template + conventions ONCE per batch and inlines the content into every
@@ -97,21 +103,38 @@ Skip:
 - Branches that can't be triggered from public API
 - JSX rendering details (containers only — and skip those mostly)
 
-### Step 4 — Write the test file
+### Step 4 — Write the test file(s)
 
-Path: `<dir of source>/__tests__/<basename>.test.ts(x)`
+Use the loaded template. Fill in placeholders with the analyzed values. Follow
+the loaded CONVENTIONS exactly.
 
-Use the loaded template. Fill in placeholders with the analyzed values. Follow conventions.md exactly (AAA, factories, no snapshots, `as never` casts on dispatch, `lastCallArg()` helper, `rejects.toMatchObject`).
+**If `TEST_DIR` is empty (React Native):** write ONE file
+`<dir of source>/__tests__/<basename>.test.ts(x)` covering the whole source.
+Conventions: AAA, factories, no snapshots, `as never` casts on dispatch,
+`lastCallArg()` helper, `rejects.toMatchObject`.
 
-If a fixture is needed but doesn't exist:
-- DO write the fixture under `<PACKAGE_ROOT>/src/__tests__/fixtures/make<X>.ts`
-- DO export both `makeX` and `makeApiX` if the source uses both API and UI types
-- DO use `Partial<X>` for the overrides parameter
+**If `TEST_DIR` is set (node):** write **one file per public method**. For each
+public method/function `m` of the source, write:
+```
+<PACKAGE_ROOT>/<TEST_DIR>/<source-path-from-layer-down>/<basename>/<m>.test.ts
+```
+e.g. `src/versions/v1/manager/transaction.manager.ts` → method `executeTransaction`
+→ `tests/unit/manager/transaction.manager/executeTransaction.test.ts`. Use
+**relative imports** back to `src/` (count the `../` segments), define factories
+locally in each file, and prefer `rejects.toThrow(...)`. Skip abstract base
+classes and pure re-export barrels.
+
+If a fixture/factory is needed:
+- **node** — define it locally in the test file (`makeX(overrides: Partial<X>)`); do NOT create a shared fixtures dir.
+- **react-native** — write it under `<PACKAGE_ROOT>/src/__tests__/fixtures/make<X>.ts`, exporting `makeX` (and `makeApiX` if both API and UI types are used), with a `Partial<X>` overrides param.
 
 ### Step 5 — Run jest
 
 ```bash
+# RN — the single file:
 cd <PACKAGE_ROOT> && npx jest <relative test file path> 2>&1
+# node — the whole per-method directory you just wrote:
+cd <PACKAGE_ROOT> && npx jest <TEST_DIR>/<...>/<basename>/ 2>&1
 ```
 
 Capture output. Parse for:
@@ -127,8 +150,10 @@ If jest fails:
 - `TypeError: undefined is not iterable` → response shape mismatch; re-read source's destructure, fix mock data
 - `Invalid variable access` in jest.mock factory → rename test variables to `mock*` prefix
 - `Module not found` for path alias → likely missing in jest moduleNameMapper, **STOP and report** (config change)
-- `as never` type errors → add the cast
-- `rejects.toThrow` matcher failing → switch to `rejects.toMatchObject({ message: ... })`
+- `as never` type errors (react-native) → add the cast
+- `rejects.toThrow` matcher failing (react-native `createAsyncThunk`) → switch to `rejects.toMatchObject({ message: ... })`
+- (node) `reflect-metadata` / decorator errors → ensure `tests/setup.ts` imports `reflect-metadata`; if missing, **STOP and report** (setup change)
+- (node) wrong `../` depth in a relative import → recount segments from the test file to `src/`
 
 If the failure is NOT in the common-patterns list, attempt one fix based on reading the error message. If it still fails, mark `needs-human`.
 
@@ -140,7 +165,8 @@ Emit one structured JSON block at the very end of your response:
 {
   "status": "passed" | "needs-human" | "skipped",
   "source_file": "<absolute path>",
-  "test_file": "<absolute path or null if skipped>",
+  "test_file": "<absolute path or null — React Native single-file output>",
+  "test_files": ["<absolute path>", "..."],
   "classification": "<one of the input types>",
   "tests_added": <integer>,
   "tests_passing": <integer>,
@@ -157,6 +183,11 @@ Emit one structured JSON block at the very end of your response:
   "retries_used": <integer 0-2>
 }
 ```
+
+**`test_file` vs `test_files`:** React Native populates `test_file` (single
+co-located file) and leaves `test_files` as `[]` or omits it. Node populates
+`test_files` (one entry per public method) and may set `test_file` to the first
+entry for backward compatibility. `tests_added` is the total across all files.
 
 ### Priority classification — apply this rubric per bug
 
@@ -193,19 +224,19 @@ The parent command reads this JSON to aggregate the batch report and to write a 
 
 ## Budget
 
-- Max 4 LLM turns (read + write + run + report).
-- Max 60 seconds wall clock.
-- If you exceed either, emit `status: "needs-human"` with `reason_if_skipped: "budget exceeded"`.
+- React Native (single file): max 4 LLM turns (read + write + run + report), ~60s wall clock.
+- Node (per-method, multiple files): scale with method count — roughly read + one write pass for all methods + run + up to 2 retries. If a source has many methods, write them all before running jest once over the directory; don't run per-file.
+- If you blow well past the budget, emit `status: "needs-human"` with `reason_if_skipped: "budget exceeded"` and report whatever files did land in `test_files`.
 
 ## What to NEVER do
 
 - Never modify the source file. Tests describe; they don't fix.
 - Never delete a test file you just wrote, even on failure — the human reads it.
-- Never run `npm test` (whole suite) — only your single test file.
+- Never run `npm test` (whole suite) — only the test file(s)/dir you wrote.
 - Never commit.
-- Never invent files outside `<PACKAGE_ROOT>/src/__tests__/` or `<PACKAGE_ROOT>/src/<source dir>/__tests__/`.
+- Never invent files outside the allowed test roots: RN → `<PACKAGE_ROOT>/src/**/__tests__/`; node → `<PACKAGE_ROOT>/<TEST_DIR>/` (e.g. `tests/unit/`).
 - Never use `toMatchSnapshot()`.
-- Never write inline test data instead of using/creating a fixture factory.
+- Never write repeated inline test data — use a factory (RN: shared `fixtures/`; node: local factory in the test file).
 - Never silence a latent bug by changing the source — flag it in the output instead.
 
 ## Worked-example flow

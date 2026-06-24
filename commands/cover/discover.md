@@ -53,6 +53,15 @@ and STOP.
 
 ## Phase 1 — Discover
 
+**If `PLATFORM==node`:** read `<plugin-root>/platforms/node/classifications.md`
+and spawn `codebase-locator` to scan `<PLATFORM_ROOT>/src/**` and
+`<PLATFORM_ROOT>/workers/**` using **that** table (manager/repository/mapper/
+service/util/worker). The "already tested" check is per-method: a source file is
+untested for any public method lacking a
+`tests/unit/<mirrored-path>/<basename>.<layer>/<method>.test.ts`. Return a JSON
+inventory grouped by those node classifications (mirroring the shape below), then
+skip to Phase 2. Everything below is the React Native scan.
+
 Spawn **`codebase-locator`** agent with this prompt:
 
 ```
@@ -100,6 +109,35 @@ Return a JSON inventory grouped by classification:
 Build a markdown plan, save to `specs/plans/<date>-cover-<package-name>.md`.
 
 ## Phase 3 — Present
+
+**If `PLATFORM==node`,** present node classifications + batches instead:
+
+```
+📊 Discovered in <PLATFORM_ROOT>:
+
+  • {{ managers.untested }} managers untested (of {{ managers.total }})
+  • {{ repositories.untested }} repositories untested (of {{ repositories.total }})
+  • {{ mappers.untested }} mappers untested (of {{ mappers.total }})
+  • {{ services.untested }} services untested (of {{ services.total }})
+  • {{ utils.untested }} utils untested (of {{ utils.total }})
+  • {{ workers.untested }} worker units untested (of {{ workers.total }})
+
+Suggested batches (priority order):
+  [1] All mappers         → {{ N }} files, confidence: high   (pure, no mocks)
+  [2] All repositories    → {{ N }} files, confidence: high   (spy on base methods)
+  [3] All utils           → {{ N }} files, confidence: high   (pure)
+  [4] All managers        → {{ N }} files, confidence: med    (TypeDI + mocked repos)
+  [5] All services        → {{ N }} files, confidence: med    (mock the SDK client)
+  [6] All worker units    → {{ N }} files, confidence: med    (processors/handlers)
+
+Plan saved to specs/plans/<date>-cover-<package>.md
+
+Pick a batch number, name a specific file, or run --batch <managers|repositories|mappers|services|util|workers>.
+```
+
+STOP.
+
+The React Native presentation:
 
 ```
 📊 Discovered in <PLATFORM_ROOT>:

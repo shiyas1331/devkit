@@ -1,5 +1,5 @@
 ---
-description: Scaffold and generate unit tests for a package or file. Platform-aware (react-native today).
+description: Scaffold and generate unit tests for a package or file. Platform-aware (react-native, node).
 argument-hint: <path> [--setup | --batch <name> | --report] OR <single-file>
 model: opus
 ---
@@ -52,7 +52,9 @@ After answer, ask for the path (regular text prompt, NOT a tool):
 Path? (e.g. `packages/establishment`, or a specific file path for "Write tests"). Type `?` for the verbose reference.
 ```
 
-If the user picked **"Write tests"** AND the path they provide is a directory (not a file), ask **Question 2 — scope:**
+If the user picked **"Write tests"** AND the path they provide is a directory (not a file), **first detect the platform** for that path (list `<plugin-root>/platforms/`, apply each `detect.md`), then ask the **platform-appropriate** Question 2 — scope.
+
+**React Native scope:**
 
 ```
 question: "What scope?"
@@ -69,16 +71,37 @@ options:
     description: "SQLite services and screen containers. Containers are lowest-confidence."
 ```
 
+**Node scope:**
+
+```
+question: "What scope?"
+header: "Scope"
+multiSelect: false
+options:
+  - label: "All mappers"
+    description: "Pure DTO/model transforms. Highest confidence — no mocks."
+  - label: "All repositories"
+    description: "Mongoose data-access classes. High confidence — spy on base methods."
+  - label: "All managers"
+    description: "TypeDI business-logic classes. Med confidence — mock injected repos."
+  - label: "All services / utils / workers"
+    description: "SDK-wrapping services, pure utils, and worker processors/handlers."
+```
+
 **Map answer → sub-command and re-invoke:**
 
 | Mode chosen | Scope chosen | Re-invoke |
 |---|---|---|
 | Discover | — | `/devkit:cover <path>` |
 | Write tests + file | — | `/devkit:cover <file>` |
-| Write tests + dir + slices | — | `/devkit:cover <path> --batch slices` |
-| Write tests + dir + thunks | — | `/devkit:cover <path> --batch thunks` |
-| Write tests + dir + hooks | — | `/devkit:cover <path> --batch hooks` |
-| Write tests + dir + svc/cont | — | `/devkit:cover <path> --batch services-containers` |
+| Write tests + dir + slices (RN) | — | `/devkit:cover <path> --batch slices` |
+| Write tests + dir + thunks (RN) | — | `/devkit:cover <path> --batch thunks` |
+| Write tests + dir + hooks (RN) | — | `/devkit:cover <path> --batch hooks` |
+| Write tests + dir + svc/cont (RN) | — | `/devkit:cover <path> --batch services-containers` |
+| Write tests + dir + mappers (node) | — | `/devkit:cover <path> --batch mappers` |
+| Write tests + dir + repositories (node) | — | `/devkit:cover <path> --batch repositories` |
+| Write tests + dir + managers (node) | — | `/devkit:cover <path> --batch managers` |
+| Write tests + dir + svc/utils/workers (node) | — | `/devkit:cover <path> --batch services` (or `util` / `workers`) |
 | Setup foundation | — | `/devkit:cover <path> --setup` |
 | Show coverage report | — | `/devkit:cover <path> --report` |
 
@@ -99,6 +122,12 @@ Delegate to `commands/cover/help.md`. Read it and follow its instructions.
 | `<path> --batch listeners` | `commands/cover/listeners.md` |
 | `<path> --batch services-containers` | `commands/cover/containers.md` |
 | `<path> --batch containers` | `commands/cover/containers.md` |
+| `<path> --batch managers` (node) | `commands/cover/managers.md` |
+| `<path> --batch repositories` (node) | `commands/cover/repositories.md` |
+| `<path> --batch mappers` (node) | `commands/cover/mappers.md` |
+| `<path> --batch services` (node) | `commands/cover/services.md` |
+| `<path> --batch util` (node) | `commands/cover/util.md` |
+| `<path> --batch workers` (node) | `commands/cover/workers.md` |
 | `<path> --report` | `commands/cover/report.md` |
 
 ### 4. Bare file path → single-file mode

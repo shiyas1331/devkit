@@ -37,6 +37,11 @@ If no platform matches, error and STOP.
 
 ## Phase 1 — Classify
 
+**If `PLATFORM==node`:** do NOT use the React Native table below. Read
+`<plugin-root>/platforms/node/classifications.md` and classify with its table
+(`manager` / `repository` / `mapper` / `service` / `util` / `worker`), then skip
+to Phase 2. The table below is React-Native-only.
+
 Determine `CLASSIFICATION` from the file contents using this table:
 
 | Signal | Classification |
@@ -69,7 +74,8 @@ PLATFORM=<PLATFORM>
 SOURCE_FILE=<absolute path>
 CLASSIFICATION=<classification>
 PACKAGE_ROOT=<PLATFORM_ROOT>
-EXISTING_FIXTURES=<comma-separated list of make*.ts files in fixtures/>
+TEST_DIR=<TEST_DIR or empty>      # node: tests/unit (per-method, centralized). RN: omit (co-located __tests__/)
+EXISTING_FIXTURES=<comma-separated list of make*.ts files in fixtures/, or empty>
 
 TEMPLATE:
 <paste TEMPLATE_CONTENT verbatim here>
@@ -80,12 +86,19 @@ CONVENTIONS:
 
 The agent does NOT read these files itself — they're already in its prompt.
 
+**Node note:** when `TEST_DIR` is set the agent emits **one test file per public
+method** under `TEST_DIR` (see conventions §2) and reports them all in
+`test_files`. RN continues to emit a single co-located file (`test_file`).
+
 ## Phase 4 — Report
 
 Wait for the agent's JSON output. Read it. Print:
 
 ```
-✅ <SOURCE_FILE>: {{ tests_added }} tests added, all passing.
+✅ <SOURCE_FILE>: {{ tests_added }} tests added across {{ test_files.length or 1 }} file(s), all passing.
+
+Test files:
+  • {{ each test_files (node: one per method) — or the single test_file (RN) }}
 
 Latent bugs flagged ({{ count }}):
   • Line {{ N }} [{{ priority }}]: {{ description }}
@@ -95,6 +108,8 @@ Retries used: {{ N }}
 
 Review the diff and commit when ready.
 ```
+
+Prefer `test_files` (node, per-method) when present; otherwise use `test_file` (RN).
 
 If status is `needs-human` or `skipped`, surface the reason prominently.
 
@@ -186,12 +201,12 @@ Format for `latent-bugs.md`:
 
 ```
 Done. To commit:
-  git add <package-path/src>
+  git add <test path>          # RN: <package>/src/.../__tests__/   node: <PLATFORM_ROOT>/tests/unit/
   git commit -m "test(<TICKET>): cover <file-basename>"
   git push
 
 Or revert if anything looks off:
-  git checkout <file-path/__tests__/>
+  git checkout <test path>     # RN: .../__tests__/   node: tests/unit/<...>/<basename>.<layer>/
 ```
 
 Never call `git add`, `git commit`, or `git push` yourself.
@@ -200,5 +215,5 @@ Never call `git add`, `git commit`, or `git push` yourself.
 
 - DO NOT modify source files. Tests describe; they don't fix.
 - DO NOT commit. Engineer reviews.
-- DO use existing fixtures before creating new ones.
+- DO use existing fixtures before creating new ones (node defines factories locally per test file — see conventions §5).
 - DO surface latent bugs to the user — they're often more valuable than the coverage itself.

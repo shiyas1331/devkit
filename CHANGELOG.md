@@ -1,5 +1,77 @@
 # Changelog
 
+## v1.7.0 (2026-06-24)
+
+### `/devkit:cover` — Node.js / TypeScript platform support
+
+`/devkit:cover` is no longer React-Native-only. A new `node` platform adapter
+teaches it to generate unit tests for TypeScript backend services (TypeDI +
+Mongoose + ts-jest), modelled on the content-service test foundation
+(practo/content-service PRs #754–768).
+
+> ⚠️ **Validation status:** The `node` adapter is **spec-only** in this
+> release. It has not been dogfooded end-to-end against content-service
+> (detection → `--setup` smoke test → a real `--batch` run → `--report`).
+> The biggest unknowns are whether the scaffolded ts-jest config boots
+> against the host `tsconfig.json` (decorator metadata for TypeDI) and
+> whether the per-method file layout reproduces the reference PRs exactly.
+> Treat the whole node pipeline as preview until validated. The
+> react-native path is unchanged — all shared-file edits are
+> `if PLATFORM==node` no-ops for RN.
+
+#### NEW: `platforms/node/` adapter
+
+```
+platforms/node/
+├── detect.md            # TS + (mongoose|apollo|graphql|express), no react-native; priority 20
+├── classifications.md   # manager | repository | mapper | service | util | worker
+├── conventions.md       # AAA, TypeDI resetContainer, boundary mocks, per-method files
+├── scaffolds/           # ts-jest jest.config, setup.ts (reflect-metadata), typedi + mongoose helpers
+├── mocks/               # reusable aws-sdk + config boundary mocks
+└── templates/           # one per classification, each citing its content-service PR
+```
+
+#### NEW: node test layout — per-method, centralized
+
+Unlike React Native (one co-located file per source under `__tests__/`), node
+emits **one test file per public method**, centralized under `tests/unit/`:
+
+```
+src/versions/v1/manager/transaction.manager.ts
+  → tests/unit/manager/transaction.manager/executeTransaction.test.ts
+```
+
+#### NEW: node batch commands
+
+```
+/devkit:cover <path> --batch managers       (or :managers)
+/devkit:cover <path> --batch repositories   (or :repositories)
+/devkit:cover <path> --batch mappers        (or :mappers)
+/devkit:cover <path> --batch services       (or :services)
+/devkit:cover <path> --batch util           (or :util)
+/devkit:cover <path> --batch workers        (or :workers)
+```
+
+All delegate to a shared `commands/cover/node-batch.md` body.
+
+#### NEW: node `--setup` track + node coverage `--report`
+
+- `--setup` scaffolds ts-jest config, `tests/setup.ts`, and `tests/helpers/`
+  (typedi + mongoose) from zero, building `moduleNameMapper` from `tsconfig`
+  paths. Idempotent; won't clobber.
+- `--report` now reports **current** coverage (`npx jest --coverage`) with no
+  baseline required, plus optional delta and lowest-covered files.
+
+#### CHANGED: `test-engineer` agent — multi-file output
+
+The agent now emits multiple per-method files for node and reports them in a new
+`test_files` array (RN keeps single `test_file`). Budget scales with method count.
+
+#### NEW: `platforms/README.md`
+
+Documents the platform-adapter contract (was referenced in detect fallbacks as
+"coming soon").
+
 ## v1.6.2 (2026-05-20)
 
 ### `/devkit:split` — renamed from split-pr, local-branch mode added
