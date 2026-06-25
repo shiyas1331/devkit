@@ -178,6 +178,43 @@ existing options.
 
 No babel changes (node uses ts-jest, not babel).
 
+## N4.5 — eslint / pre-commit compatibility (CONDITIONAL — do this or the first commit fails)
+
+Most Node services gate commits with husky → lint-staged → **type-aware eslint**
+(`parserOptions.project`). Generated test files must be lint-clean or the very
+first `git commit` of this foundation fails the hook. Apply the following **only
+when** the repo uses typed eslint — detect by: an `.eslintrc{.js,.cjs,.json,.yml}`
+exists AND its `parserOptions.project` is set. If there's no typed eslint, skip
+this whole step. All sub-steps are idempotent (skip if already present).
+
+1. **Test files not in any tsconfig project.** If the build `tsconfig.json`
+   `exclude`s `**/*.test.ts` (or otherwise omits `tests/`), type-aware eslint
+   errors with `Parsing error: TSConfig does not include this file`. Fix:
+   - Generate `tsconfig.eslint.json` from
+     `platforms/node/scaffolds/tsconfig.eslint.template.json` (extends the build
+     tsconfig, adds `tests/**/*`, drops the test exclude). Align its `include`
+     with the host tsconfig's includes.
+   - Add an eslint `overrides` entry so test files use it:
+     ```js
+     {
+       files: ['tests/**/*.ts'],
+       parserOptions: { project: './tsconfig.eslint.json' },
+     }
+     ```
+
+2. **`jest.config.js` not in any tsconfig project.** A root `.js` config trips
+   typed eslint the same way. Add `jest.config.js` to the eslint `ignorePatterns`
+   array (alongside whatever root `.js` configs are already listed).
+
+3. **Exported helper return types.** The scaffolded `tests/helpers/*` already
+   carry explicit return types (for `explicit-module-boundary-types`). If you
+   hand-add helpers, do the same.
+
+After applying, verify before handing off:
+```bash
+cd <PLATFORM_ROOT> && npx eslint 'tests/**/*.ts'   # must exit 0
+```
+
 ## N5 — Resume at Phase 7 (smoke test) using the node command, then report
 
 ```
@@ -187,12 +224,15 @@ Files generated:
   • jest.config.js
   • tests/setup.ts
   • tests/helpers/{typedi,mongoose}.helper.ts
+  • tsconfig.eslint.json            (only if repo uses typed eslint — see N4.5)
 
 Files modified:
   • package.json (jest + ts-jest devDeps, test scripts)
   • tsconfig.json (jest/node types)
+  • .eslintrc.*  (tests/** override + jest.config.js ignore — only if typed eslint)
 
 Smoke test passed: `npx jest --passWithNoTests` → exit 0
+Lint check passed:  `npx eslint 'tests/**/*.ts'` → exit 0 (if typed eslint)
 
 Next: run `/devkit:cover <PLATFORM_ROOT>` to discover untested code, or
 `/devkit:cover <PLATFORM_ROOT> --batch mappers` to start with the easy wins.

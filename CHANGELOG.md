@@ -1,5 +1,36 @@
 # Changelog
 
+## v1.7.1 (2026-06-25)
+
+### `/devkit:cover` node `--setup` — pre-commit / eslint compatibility
+
+Dogfooding the node adapter against content-service (PoC PR practo/content-service#783)
+surfaced three ways the generated foundation passed `jest` but failed the host
+repo's **husky → lint-staged → type-aware eslint** pre-commit gate — i.e. the
+tool couldn't commit its own output. All three are now handled by the `--setup`
+node track. This path is **validated** (PR #783: foundation + 5 test files / 15
+tests, hooks + lint + jest all green).
+
+#### Fixes
+
+1. **Test files weren't in any tsconfig project.** Backend repos exclude
+   `**/*.test.ts` from the build tsconfig, so type-aware eslint errored with
+   `Parsing error: TSConfig does not include this file`. Setup now (conditionally,
+   when the repo uses typed eslint) generates `tsconfig.eslint.json` (new scaffold)
+   and adds an eslint `overrides` entry pointing `tests/**/*.ts` at it.
+
+2. **Exported helper factories lacked return types.** `mongoose.helper`'s
+   `makeSession` / `makeQuery` tripped `@typescript-eslint/explicit-module-boundary-types`.
+   The scaffold template now declares explicit return types.
+
+3. **`jest.config.js` tripped typed eslint** (root `.js`, no tsconfig project).
+   Setup now adds it to the eslint `ignorePatterns`.
+
+Steps 1 and 3 are **conditional + idempotent** — applied only when the repo has
+typed eslint (`.eslintrc*` with `parserOptions.project`), skipped otherwise, and
+never clobber existing config. New `N4.5` step in `commands/cover/setup.md`
+documents the detection and includes an `npx eslint 'tests/**/*.ts'` verification.
+
 ## v1.7.0 (2026-06-24)
 
 ### `/devkit:cover` — Node.js / TypeScript platform support

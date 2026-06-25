@@ -4,6 +4,9 @@
  * Factories for the Mongoose objects that managers/repositories touch most:
  * ClientSession (transactions) and lightweight query builders. Extend as the
  * suite grows — keep factories small and override-friendly.
+ *
+ * NOTE: exported factories carry explicit return types so they pass repos that
+ * enable @typescript-eslint/explicit-module-boundary-types.
  */
 
 /**
@@ -11,7 +14,9 @@
  * code calls. `inTransaction` defaults to true so the error path attempts an
  * abort — override per test where needed: `makeSession({ inTransaction: () => false })`.
  */
-export const makeSession = (overrides: Partial<Record<string, unknown>> = {}) => ({
+export const makeSession = (
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> => ({
   startTransaction: jest.fn().mockResolvedValue(undefined),
   commitTransaction: jest.fn().mockResolvedValue(undefined),
   abortTransaction: jest.fn().mockResolvedValue(undefined),
@@ -24,14 +29,13 @@ export const makeSession = (overrides: Partial<Record<string, unknown>> = {}) =>
  * A chainable mock Mongoose Query (`.populate().lean().session().exec()` etc.)
  * that finally resolves to `result`. Add chain methods your model code uses.
  */
-export const makeQuery = (result: unknown) => {
+export const makeQuery = (result: unknown): Record<string, unknown> => {
   const query: Record<string, jest.Mock> = {};
-  ['populate', 'lean', 'session', 'sort', 'select', 'limit', 'skip'].forEach((m) => {
+  ['populate', 'lean', 'session', 'sort', 'select', 'limit', 'skip'].forEach(m => {
     query[m] = jest.fn(() => query);
   });
   query.exec = jest.fn().mockResolvedValue(result);
   // Allow `await query` directly (thenable).
-  (query as unknown as { then: unknown }).then = (resolve: (v: unknown) => void) =>
-    resolve(result);
+  (query as unknown as { then: unknown }).then = (resolve: (v: unknown) => void) => resolve(result);
   return query;
 };
