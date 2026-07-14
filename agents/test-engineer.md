@@ -22,13 +22,17 @@ You work on ONE source file at a time. The parent command (`/devkit:cover`) spaw
 The parent command passes you (in the prompt):
 
 ```
-PLATFORM=<react-native|node|...>
+PLATFORM=<react-native|node|android|...>
 SOURCE_FILE=<absolute path>
 CLASSIFICATION=<slice|thunk|hook-*|service|container   (react-native)
-              | manager|repository|mapper|service|util|worker   (node)>
+              | manager|repository|mapper|service|util|worker   (node)
+              | viewmodel|repository|util|model|interceptor|robolectric|pagingsource   (android)>
 PACKAGE_ROOT=<absolute path to package — for resolving fixtures, mocks, jest>
-TEST_DIR=<empty (react-native, co-located __tests__/) | tests/unit (node, per-method, centralized)>
-EXISTING_FIXTURES=<list of make*.ts files already present, or empty>
+TEST_DIR=<empty (react-native, co-located __tests__/) | tests/unit (node, per-method, centralized) | <module>/src/test/java (android, per-FILE, mirrored package)>
+TEST_GRANULARITY=<per-file — android only; overrides the TEST_DIR-set-means-per-method rule below>
+GRADLE_MODULE=<android only — ':order'-style module name, or empty for the root project>
+UNIT_TEST_TASK=<android only — e.g. testProductionDebugUnitTest>
+EXISTING_FIXTURES=<list of make*.ts files already present, or empty. android: *StubFactory.kt / *TestHelper.kt>
 
 TEMPLATE:
 <full content of the matching template inlined here by the parent>
@@ -40,6 +44,7 @@ CONVENTIONS:
 **Output granularity depends on `TEST_DIR`:**
 - **Empty (React Native)** — emit ONE co-located test file `<dir>/__tests__/<basename>.test.ts(x)` for the whole source file. Report it in `test_file`.
 - **Set (node)** — emit **one test file per public method** under `TEST_DIR`, with the path mirroring the source from the layer down and the basename as a directory (conventions §2). Report all of them in `test_files`.
+- **Set + `TEST_GRANULARITY=per-file` (android)** — emit ONE test file `TEST_DIR/<package path>/<Name>Test.kt` for the whole source file (package mirrors the source's `package` declaration). Report it in `test_file`. Run it with the gradle command from conventions §7 (module-scoped, `--tests`-filtered) — NOT jest.
 
 **No file paths to the devkit plugin are passed in.** The parent command reads
 the template + conventions ONCE per batch and inlines the content into every
@@ -135,11 +140,15 @@ If a fixture/factory is needed:
 cd <PACKAGE_ROOT> && npx jest <relative test file path> 2>&1
 # node — the whole per-method directory you just wrote:
 cd <PACKAGE_ROOT> && npx jest <TEST_DIR>/<...>/<basename>/ 2>&1
+# android — module-scoped gradle, filtered to YOUR class only (never unscoped):
+cd <PACKAGE_ROOT> && ./gradlew <GRADLE_MODULE>:<UNIT_TEST_TASK> --tests "<FQCN of your test class>" 2>&1 | tail -80
 ```
 
 Capture output. Parse for:
 - `Tests:` count line → success path
 - `FAIL` lines + stack traces → failure path
+- android: `BUILD SUCCESSFUL` → success; compile errors / `> Task … FAILED` +
+  per-test failures (also in `<module>/build/test-results/<task>/*.xml`) → failure path
 
 ### Step 6 — Retry on failure (max 2)
 
@@ -154,6 +163,12 @@ If jest fails:
 - `rejects.toThrow` matcher failing (react-native `createAsyncThunk`) → switch to `rejects.toMatchObject({ message: ... })`
 - (node) `reflect-metadata` / decorator errors → ensure `tests/setup.ts` imports `reflect-metadata`; if missing, **STOP and report** (setup change)
 - (node) wrong `../` depth in a relative import → recount segments from the test file to `src/`
+- (android) `Unresolved reference: mockitokotlin2` / `org.mockito.kotlin` → the repo pins the Nhaarman fork; imports must be `com.nhaarman.mockitokotlin2.*`
+- (android) `Mockito cannot mock/spy … static` or `MockedStatic` failure → create `<module>/src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker` containing `mock-maker-inline` (the one allowed non-test-code write)
+- (android) `Method getMainLooper in android.os.Looper not mocked` / LiveData `NullPointerException` → missing `InstantTaskExecutorRule` or missing `Dispatchers.setMain`
+- (android) `Module with the Main dispatcher had failed to initialize` → add `Dispatchers.setMain(testDispatcher)` in `@Before`
+- (android) gradle JVM/toolchain error on macOS → retry with `JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"`
+- (android) `Unresolved reference` for an Android framework class in a util test → source executes framework code; **STOP and report** reclassification to `robolectric`
 
 If the failure is NOT in the common-patterns list, attempt one fix based on reading the error message. If it still fails, mark `needs-human`.
 
@@ -232,9 +247,10 @@ The parent command reads this JSON to aggregate the batch report and to write a 
 
 - Never modify the source file. Tests describe; they don't fix.
 - Never delete a test file you just wrote, even on failure — the human reads it.
-- Never run `npm test` (whole suite) — only the test file(s)/dir you wrote.
+- Never delete, move, or "clean up" files you did not create in this run — including pre-existing untracked files. Your write scope is the test file(s) plus the allowed MockMaker resource; nothing else.
+- Never run `npm test` (whole suite) — only the test file(s)/dir you wrote. (android: never an unscoped `./gradlew test` — always module-scoped + `--tests`-filtered.)
 - Never commit.
-- Never invent files outside the allowed test roots: RN → `<PACKAGE_ROOT>/src/**/__tests__/`; node → `<PACKAGE_ROOT>/<TEST_DIR>/` (e.g. `tests/unit/`).
+- Never invent files outside the allowed test roots: RN → `<PACKAGE_ROOT>/src/**/__tests__/`; node → `<PACKAGE_ROOT>/<TEST_DIR>/` (e.g. `tests/unit/`); android → `<TEST_DIR>/` (`<module>/src/test/`).
 - Never use `toMatchSnapshot()`.
 - Never write repeated inline test data — use a factory (RN: shared `fixtures/`; node: local factory in the test file).
 - Never silence a latent bug by changing the source — flag it in the output instead.

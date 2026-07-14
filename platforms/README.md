@@ -33,9 +33,12 @@ where classification tables or scaffolding genuinely differ).
 |---|---|---|---|---|
 | `react-native` | 10 | one file per source | co-located `__tests__/` | Jest + Redux Toolkit + RTL |
 | `node` | 20 | one file per **public method** | centralized `tests/unit/` | ts-jest + TypeDI + Mongoose |
+| `android` | 30 | one file per source | `<module>/src/test/java/` (mirrored package) | JUnit4 + mockito-kotlin (Nhaarman) + Truth + coroutines-test, run via gradle |
 
 `react-native` is checked first; `node` is the backend fallback (it bumps out when
-`react-native` is in deps).
+`react-native` is in deps); `android` catches native Gradle repos (no
+`package.json` anywhere — an RN repo's embedded `android/` folder bumps back to
+`react-native`).
 
 ## Adding a new platform
 

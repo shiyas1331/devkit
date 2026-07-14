@@ -32,6 +32,20 @@ cd <PLATFORM_ROOT> && npm test -- --coverage 2>&1
 cd <PLATFORM_ROOT> && npx jest --coverage 2>&1
 ```
 
+**If `PLATFORM==android`:** jest doesn't apply. Instead:
+1. Run the module's unit tests:
+   `cd <PLATFORM_ROOT> && ./gradlew <GRADLE_MODULE>:<UNIT_TEST_TASK> 2>&1`
+   (root project → keep it `--tests`-filtered to known test classes; unscoped
+   root runs may be red for pre-existing reasons). Count suites/tests from the
+   XML under `<MODULE_DIR>/build/test-results/<UNIT_TEST_TASK>/`.
+2. Coverage %: only if the repo has a WORKING per-module JaCoCo/Kover task
+   (`./gradlew <GRADLE_MODULE>:jacocoTestReport` or `koverXmlReport`) — read the
+   XML/HTML it produces. If the repo's coverage task is known-broken or absent,
+   SKIP the percentage (say so) and report file-level coverage instead:
+   tested-vs-untested file counts per classification from the discover scan.
+3. Then continue with Phase 2 (latent bugs) and Phase 3, substituting the
+   android numbers.
+
 - **Current coverage** (the user asking "how much coverage do we have?"): always
   available — read the `% Stmts / % Branch / % Funcs / % Lines` row of jest's
   coverage summary. No baseline required.

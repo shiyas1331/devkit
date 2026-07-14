@@ -35,6 +35,9 @@ If no platform matches, error and STOP.
 > babel aliases, native-module mocks, RN test-utils). Follow the **Node setup
 > track** at the end of this file instead, then resume at Phase 7 (smoke test).
 
+> **If `PLATFORM==android`:** skip Phases 1–7 below entirely. Follow the
+> **Android setup track** at the end of this file (it has its own smoke test).
+
 ## Phase 1 — Validate target
 
 Target must be a directory with `package.json`. If not, error and STOP.
@@ -236,4 +239,65 @@ Lint check passed:  `npx eslint 'tests/**/*.ts'` → exit 0 (if typed eslint)
 
 Next: run `/devkit:cover <PLATFORM_ROOT>` to discover untested code, or
 `/devkit:cover <PLATFORM_ROOT> --batch mappers` to start with the easy wins.
+```
+
+---
+
+# Android setup track (`PLATFORM==android`)
+
+Used instead of Phases 1–7 when the detected platform is `android`. Goal: make
+ONE gradle module test-ready. Android repos usually have partial infra already —
+this track only fills gaps, per-module, and never removes or upgrades anything.
+
+## A1 — Validate target + detect existing foundation
+
+Target must resolve to a gradle module (detect.md sets `GRADLE_MODULE`,
+`MODULE_DIR`, `UNIT_TEST_TASK`). Then:
+
+- Read the module's build file (`build.gradle` or `<module-name>.gradle`).
+- `HAS_TEST_DEPS` = the `dependencies {}` block already has junit +
+  mockito-kotlin + truth + coroutines-test.
+- `HAS_TEST_MODULE_DEP` = `testImplementation project(':test')` present
+  (only relevant when the repo's `settings.gradle` includes a `:test` module).
+- `HAS_MOCKMAKER_INLINE` =
+  `<MODULE_DIR>/src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker` exists.
+
+## A2 — Fill gaps (idempotent; never clobber, never remove)
+
+| Gap | Action |
+|---|---|
+| missing test deps | Insert the MISSING `testImplementation` lines from `platforms/android/scaffolds/test-deps.gradle.template` into the module's `dependencies {}` block, next to any existing testImplementation lines. Match the repo's dependency-catalog idiom (`libraries.test.*` vs explicit coordinates — copy from a sibling module's block). |
+| missing `:test` dep | Add `testImplementation project(':test')` (only if the repo has a `:test` module). |
+| missing MockMaker | Write `platforms/android/scaffolds/MockMaker.template` → `<MODULE_DIR>/src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker`. |
+| missing `src/test/java/` | Create the directory (empty). |
+
+This is the ONLY cover mode allowed to edit a build file — and only the
+module's own, only additive.
+
+## A3 — Smoke test
+
+```bash
+cd <PLATFORM_ROOT> && ./gradlew <GRADLE_MODULE>:<UNIT_TEST_TASK> --dry-run 2>&1 | tail -20
+```
+
+(`--dry-run` validates the task graph + build file edits in seconds without
+compiling.) Must print `BUILD SUCCESSFUL`. If gradle fails with a JVM/toolchain
+error on macOS, retry with
+`JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"`.
+If it still fails, report the error and STOP — revert any build-file edit that
+caused it.
+
+## A4 — Report
+
+```
+✅ Setup complete for <MODULE_DIR> (android, module <GRADLE_MODULE or "root project">)
+
+Files modified/created:
+  • <module build file> (added: <list of testImplementation lines, or "nothing — already complete">)
+  • src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker (<created|already present>)
+
+Smoke test passed: `./gradlew <GRADLE_MODULE>:<UNIT_TEST_TASK> --dry-run` → BUILD SUCCESSFUL
+
+Next: run `/devkit:cover <module>` to discover untested code, or
+`/devkit:cover <module> --batch util` to start with the easy wins.
 ```

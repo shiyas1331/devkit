@@ -1,5 +1,5 @@
 ---
-description: Scaffold and generate unit tests for a package or file. Platform-aware (react-native, node).
+description: Scaffold and generate unit tests for a package or file. Platform-aware (react-native, node, android).
 argument-hint: <path> [--setup | --batch <name> | --report] OR <single-file>
 model: opus
 ---
@@ -88,6 +88,23 @@ options:
     description: "SDK-wrapping services, pure utils, and worker processors/handlers."
 ```
 
+**Android scope:**
+
+```
+question: "What scope?"
+header: "Scope"
+multiSelect: false
+options:
+  - label: "All ViewModels"
+    description: "Every untested *ViewModel (and legacy Presenter). Mocked repo + coroutine dispatcher swap. Med-high confidence."
+  - label: "All repositories"
+    description: "Retrofit-wrapping data classes. Mock the API interface, assert Output success/failure/error. High confidence."
+  - label: "All utils / helpers"
+    description: "Pure JVM extension/helper files. No mocks, Truth assertions. Highest confidence."
+  - label: "All models"
+    description: "Response data classes with parsing or computed logic. Gson round-trip + null tolerance."
+```
+
 **Map answer → sub-command and re-invoke:**
 
 | Mode chosen | Scope chosen | Re-invoke |
@@ -102,6 +119,10 @@ options:
 | Write tests + dir + repositories (node) | — | `/devkit:cover <path> --batch repositories` |
 | Write tests + dir + managers (node) | — | `/devkit:cover <path> --batch managers` |
 | Write tests + dir + svc/utils/workers (node) | — | `/devkit:cover <path> --batch services` (or `util` / `workers`) |
+| Write tests + dir + ViewModels (android) | — | `/devkit:cover <path> --batch viewmodels` |
+| Write tests + dir + repositories (android) | — | `/devkit:cover <path> --batch repositories` |
+| Write tests + dir + utils (android) | — | `/devkit:cover <path> --batch util` |
+| Write tests + dir + models (android) | — | `/devkit:cover <path> --batch models` |
 | Setup foundation | — | `/devkit:cover <path> --setup` |
 | Show coverage report | — | `/devkit:cover <path> --report` |
 
@@ -123,16 +144,18 @@ Delegate to `commands/cover/help.md`. Read it and follow its instructions.
 | `<path> --batch services-containers` | `commands/cover/containers.md` |
 | `<path> --batch containers` | `commands/cover/containers.md` |
 | `<path> --batch managers` (node) | `commands/cover/managers.md` |
-| `<path> --batch repositories` (node) | `commands/cover/repositories.md` |
+| `<path> --batch repositories` (node\|android) | `commands/cover/repositories.md` |
 | `<path> --batch mappers` (node) | `commands/cover/mappers.md` |
 | `<path> --batch services` (node) | `commands/cover/services.md` |
-| `<path> --batch util` (node) | `commands/cover/util.md` |
+| `<path> --batch util` (node\|android) | `commands/cover/util.md` |
 | `<path> --batch workers` (node) | `commands/cover/workers.md` |
+| `<path> --batch viewmodels` (android) | `commands/cover/viewmodels.md` |
+| `<path> --batch models` (android) | `commands/cover/models.md` |
 | `<path> --report` | `commands/cover/report.md` |
 
 ### 4. Bare file path → single-file mode
 
-**Trigger:** `$ARGUMENTS` ends in `.ts` or `.tsx` and the file exists.
+**Trigger:** `$ARGUMENTS` ends in `.ts`, `.tsx`, `.kt`, or `.java` and the file exists.
 
 Delegate to `commands/cover/file.md`.
 
@@ -147,7 +170,7 @@ Delegate to `commands/cover/discover.md`.
 - DO NOT modify source files. Tests describe; they don't fix.
 - DO NOT commit. Engineer reviews.
 - DO NOT touch files outside the target package.
-- DO NOT run `npm test` on the whole repo — only the target package.
+- DO NOT run `npm test` on the whole repo — only the target package. (android: NEVER run an unscoped `./gradlew test`; only the module's unit-test task, `--tests`-filtered on the root project.)
 - DO use existing fixtures before creating new ones (grep `<PACKAGE_ROOT>/src/__tests__/fixtures/`).
 - DO surface latent bugs to the user — they're often more valuable than the coverage itself.
 

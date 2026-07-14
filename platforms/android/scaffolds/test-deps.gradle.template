@@ -1,0 +1,15 @@
+// Uniform unit-test dependency block for a fabric-droid-style module.
+// --setup inserts the MISSING lines into the module's dependencies { } block —
+// never duplicate lines that already exist, never remove anything.
+// `libraries.*` aliases come from the repo's shared dependency catalog; if the
+// target repo doesn't define them, substitute its own conventions.
+
+    testImplementation project(':test')                 // shared TestCoroutinesRule / getTestScheduler / isEqualTo (only if a :test module exists)
+    testImplementation libraries.test.junit
+    testImplementation libraries.test.mockitoCore
+    testImplementation libraries.test.mockitoInline     // required for Mockito.mockStatic
+    testImplementation libraries.test.mockitoKotlin     // com.nhaarman.mockitokotlin2
+    testImplementation libraries.test.archCoreTest      // InstantTaskExecutorRule
+    testImplementation libraries.test.googleTruth
+    testImplementation libraries.test.mockk
+    testImplementation libraries.kotlin.coroutinesTest

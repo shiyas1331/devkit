@@ -62,6 +62,16 @@ untested for any public method lacking a
 inventory grouped by those node classifications (mirroring the shape below), then
 skip to Phase 2. Everything below is the React Native scan.
 
+**If `PLATFORM==android`:** read `<plugin-root>/platforms/android/classifications.md`
+and spawn `codebase-locator` to scan `<MODULE_DIR>/src/main/java/**` (and
+`src/main/kotlin/**`) with **that** table (viewmodel/repository/util/
+interceptor/robolectric/pagingsource/model). The "already tested" check is
+per-file: a source is tested when
+`<MODULE_DIR>/src/test/java/<package path>/<Name>Test.kt` exists (also check
+the `<Name>KtTest.kt` variant and `.java` twin). Return a JSON inventory
+grouped by those android classifications (mirroring the shape below), then skip
+to Phase 2. Everything below is the React Native scan.
+
 Spawn **`codebase-locator`** agent with this prompt:
 
 ```
@@ -133,6 +143,30 @@ Suggested batches (priority order):
 Plan saved to specs/plans/<date>-cover-<package>.md
 
 Pick a batch number, name a specific file, or run --batch <managers|repositories|mappers|services|util|workers>.
+```
+
+STOP.
+
+**If `PLATFORM==android`,** present android classifications + batches instead:
+
+```
+📊 Discovered in <MODULE_DIR> (gradle module <GRADLE_MODULE or "root project">):
+
+  • {{ viewmodels.untested }} ViewModels untested (of {{ viewmodels.total }})
+  • {{ repositories.untested }} repositories untested (of {{ repositories.total }})
+  • {{ utils.untested }} utils/helpers untested (of {{ utils.total }})
+  • {{ models.untested }} models with logic untested (of {{ models.total }})
+  • {{ other.count }} skipped (interceptor/robolectric/pagingsource — single-file mode only for now; Activities/Fragments/Compose — out of scope)
+
+Suggested batches (priority order):
+  [1] All utils           → {{ N }} files, confidence: high   (pure JVM, no mocks)
+  [2] All repositories    → {{ N }} files, confidence: high   (mock the Retrofit API)
+  [3] All models          → {{ N }} files, confidence: high   (Gson round-trip)
+  [4] All ViewModels      → {{ N }} files, confidence: med    (dispatcher swap + mocked repo)
+
+Plan saved to specs/plans/<date>-cover-<module>.md
+
+Pick a batch number, name a specific file, or run --batch <viewmodels|repositories|util|models>.
 ```
 
 STOP.

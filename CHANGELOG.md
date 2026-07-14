@@ -1,5 +1,70 @@
 # Changelog
 
+## v1.8.0 (2026-07-14)
+
+### `/devkit:cover` — Android (Kotlin/Java) platform support (validated)
+
+`/devkit:cover` now covers native Android Gradle repos. A new `android`
+platform adapter generates JUnit4 + mockito-kotlin + Truth unit tests for
+Gradle modules, modelled on the fabric-droid test-pattern analysis
+(`research/2026-05-19-multi-platform-test-analysis/raw/fabric-droid-analysis.md`).
+
+> ⚠️ **Validation status:** the core generate path is **validated** by
+> dogfooding against practo/fabric-droid's `order` module: 4 ViewModels →
+> 4 test files / 34 tests, all green in one module-scoped gradle run
+> (`:order:testProductionDebugUnitTest`), surfacing 7 latent production bugs
+> (1 P0 — a Compose SnapshotStateList silent no-op). NOT yet dogfooded: the
+> android branches of `discover`, `--setup`, and `--report`, and the
+> `interceptor`/`robolectric`/`pagingsource` templates (classification lists
+> them; file-mode stops with a clear "needs a template" message). Treat those
+> paths as preview.
+
+#### NEW: `platforms/android/` adapter
+
+```
+platforms/android/
+├── detect.md            # settings.gradle + gradlew, no package.json up-tree; priority 30
+├── classifications.md   # viewmodel | repository | util | model (+ 3 pending templates)
+├── conventions.md       # Nhaarman mockito-kotlin 2.2.0, Truth, dispatcher swap, module-scoped gradle runs, §4.5 leakage recipes
+├── scaffolds/           # MockMaker (mock-maker-inline) + uniform test-deps block
+└── templates/           # viewmodel / repository / util / model — worked examples lifted from real fabric-droid tests
+```
+
+#### NEW: android test layout — per-file, mirrored package
+
+Unlike node (per-method, centralized), android emits **one test file per
+source file** at `<module>/src/test/java/<package>/<Name>Test.kt`, verified
+with ONE module-scoped, `--tests`-filtered gradle invocation. Root-project
+sources MUST stay `--tests`-filtered (host repos commonly carry pre-existing
+red tests on the base branch).
+
+#### NEW: batch + wiring
+
+- `commands/cover/android-batch.md` — shared batch runner (agent pool of 3:
+  concurrent gradle builds serialize on file locks, more just queues)
+- `--batch viewmodels` / `--batch models` (new); `--batch repositories` /
+  `--batch util` are now platform-aware (node|android)
+- Router picker gains an Android scope question; `discover`/`file`/`setup`/
+  `report` gain `if PLATFORM==android` branches; android `--setup` only fills
+  missing module test deps + the MockMaker resource (additive, idempotent)
+- `test-engineer` agent: android inputs (`TEST_GRANULARITY=per-file`,
+  `GRADLE_MODULE`, `UNIT_TEST_TASK`), android retry patterns, and a new hard
+  guardrail: never delete/move files not created in the run
+
+#### Validated field recipes (conventions §4.5, learned during dogfood)
+
+- `android.*` leakage in plain JVM tests: `mockStatic(TextUtils)`; one-time
+  `@BeforeClass` `mockConstruction(SparseArray)` for init-block landmines
+  (incl. eager `Uri` CONTENT_URI fields)
+- `switchMap`/`MediatorLiveData` only emits with an active observer →
+  `observeForever {}` in setUp
+- data-binding `BR` can be missing at test **runtime** in library modules
+- Paging3: drive generations with a minimal `PagingDataDiffer`-based differ —
+  never add the `paging-testing` dep
+
+Not changed in this release: react-native and node paths (all shared-file
+edits are `if PLATFORM==android` no-ops for them).
+
 ## v1.7.1 (2026-06-25)
 
 ### `/devkit:cover` node `--setup` — pre-commit / eslint compatibility

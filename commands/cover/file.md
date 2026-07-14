@@ -6,7 +6,7 @@ model: opus
 
 # /devkit:cover:file — cover a single source file
 
-Equivalent to `/devkit:cover <file-path>` (bare file path ending in `.ts` or `.tsx`). Skips the picker.
+Equivalent to `/devkit:cover <file-path>` (bare file path ending in `.ts`, `.tsx`, `.kt`, or `.java`). Skips the picker.
 
 ## Input
 
@@ -14,7 +14,7 @@ Equivalent to `/devkit:cover <file-path>` (bare file path ending in `.ts` or `.t
 $ARGUMENTS
 ```
 
-If `$ARGUMENTS` is empty, prompt once: `"File path? (must end in .ts or .tsx)"`.
+If `$ARGUMENTS` is empty, prompt once: `"File path? (must end in .ts/.tsx — or .kt/.java for android)"`.
 
 ## Context loading
 
@@ -41,6 +41,14 @@ If no platform matches, error and STOP.
 `<plugin-root>/platforms/node/classifications.md` and classify with its table
 (`manager` / `repository` / `mapper` / `service` / `util` / `worker`), then skip
 to Phase 2. The table below is React-Native-only.
+
+**If `PLATFORM==android`:** do NOT use the React Native table below. Read
+`<plugin-root>/platforms/android/classifications.md` and classify with its table
+(`viewmodel` / `repository` / `util` / `interceptor` / `robolectric` /
+`pagingsource` / `model`), then skip to Phase 2. If the classification's
+template doesn't exist yet under `platforms/android/templates/`
+(`interceptor`/`robolectric`/`pagingsource` are pending), STOP and report that
+this classification needs a template first.
 
 Determine `CLASSIFICATION` from the file contents using this table:
 
@@ -74,8 +82,8 @@ PLATFORM=<PLATFORM>
 SOURCE_FILE=<absolute path>
 CLASSIFICATION=<classification>
 PACKAGE_ROOT=<PLATFORM_ROOT>
-TEST_DIR=<TEST_DIR or empty>      # node: tests/unit (per-method, centralized). RN: omit (co-located __tests__/)
-EXISTING_FIXTURES=<comma-separated list of make*.ts files in fixtures/, or empty>
+TEST_DIR=<TEST_DIR or empty>      # node: tests/unit (per-method, centralized). android: <MODULE_DIR>/src/test/java (per-file, mirrored package). RN: omit (co-located __tests__/)
+EXISTING_FIXTURES=<comma-separated list of make*.ts files in fixtures/, or empty. android: *StubFactory.kt / *TestHelper.kt in the module's test dir>
 
 TEMPLATE:
 <paste TEMPLATE_CONTENT verbatim here>
@@ -84,11 +92,19 @@ CONVENTIONS:
 <paste CONVENTIONS_CONTENT verbatim here>
 ```
 
+**Android additions:** also pass `TEST_GRANULARITY=per-file`,
+`GRADLE_MODULE=<GRADLE_MODULE>`, and `UNIT_TEST_TASK=<UNIT_TEST_TASK>` lines —
+the agent's run command comes from conventions §7.
+
 The agent does NOT read these files itself — they're already in its prompt.
 
 **Node note:** when `TEST_DIR` is set the agent emits **one test file per public
 method** under `TEST_DIR` (see conventions §2) and reports them all in
 `test_files`. RN continues to emit a single co-located file (`test_file`).
+
+**Android note:** `TEST_DIR` is set BUT granularity is per-FILE: the agent
+emits ONE `<Name>Test.kt` at `TEST_DIR/<package path>/` covering the whole
+source, reported in `test_file`.
 
 ## Phase 4 — Report
 
@@ -201,12 +217,12 @@ Format for `latent-bugs.md`:
 
 ```
 Done. To commit:
-  git add <test path>          # RN: <package>/src/.../__tests__/   node: <PLATFORM_ROOT>/tests/unit/
+  git add <test path>          # RN: <package>/src/.../__tests__/   node: <PLATFORM_ROOT>/tests/unit/   android: <MODULE_DIR>/src/test/
   git commit -m "test(<TICKET>): cover <file-basename>"
   git push
 
 Or revert if anything looks off:
-  git checkout <test path>     # RN: .../__tests__/   node: tests/unit/<...>/<basename>.<layer>/
+  git checkout <test path>     # RN: .../__tests__/   node: tests/unit/<...>/<basename>.<layer>/   android: src/test/java/<pkg>/<Name>Test.kt
 ```
 
 Never call `git add`, `git commit`, or `git push` yourself.
